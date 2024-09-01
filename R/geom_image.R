@@ -71,7 +71,7 @@ GeomImage <- ggproto("GeomImage", Geom,
                      },
 
                      default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"),
-                                       size=0.05, colour = NULL, angle = 0, alpha=1),
+                                       size=0.05, colour = NULL, angle = 0, opacity=100),
 
                      draw_panel = function(data, panel_params, coord, by, na.rm = FALSE,
                                            .fun = NULL, height, image_fun = NULL,
@@ -91,16 +91,13 @@ GeomImage <- ggproto("GeomImage", Geom,
                        }
 
                        coords <- coord$transform(data, panel_params)
-
-                       # Calculate plot dimensions and aspect ratio
                        plot_width <- diff(panel_params$x.range)
                        plot_height <- diff(panel_params$y.range)
-                       plot_asp <- plot_height / plot_width
 
-                       coords$group <- as.factor(data$image)
+                       coords$group <- seq_len(nrow(coords))  # Each row is its own group
                        grobs <- lapply(split(coords, coords$group), function(group_data) {
-                         img <- unique(group_data$image)
-                         prepared_img <- prepare_image(img, group_data$colour[1], group_data$alpha[1], group_data$angle[1], image_fun)
+                         img <- group_data$image
+                         prepared_img <- prepare_image(img, group_data$colour, group_data$opacity, group_data$angle, image_fun)
 
                          if (is.null(prepared_img)) {
                            warning("Failed to prepare image: ", paste(img, collapse=","))
@@ -189,7 +186,7 @@ print_plot <- function(p) {
 ##' @importFrom grDevices col2rgb
 ##' @importFrom methods is
 ##' @importFrom tools file_ext
-imageGrob <- function(x, y, size, img, colour, alpha, angle, adj, image_fun, hjust, by, asp=1, default.units='native') {
+imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by, asp=1, default.units='native') {
   if (is.na(img)) {
     return(zeroGrob())
   }
@@ -347,41 +344,23 @@ is_invalid <- function(x) {
 #' @param angle The rotation angle
 #' @param image_fun A function to apply to the image
 #' @return A prepared magick image object or NULL if preparation fails
-prepare_image <- function(img, colour, alpha, angle, image_fun) {
+prepare_image <- function(img, colour, opacity, angle, image_fun) {
   tryCatch({
-    # message("prepare_image input: ",
-    #         "img=", paste(img, collapse=","),
-    #         ", colour=", paste(colour, collapse=","),
-    #         ", alpha=", paste(alpha, collapse=","),
-    #         ", angle=", paste(angle, collapse=","))
-
     if (is_invalid(img)) {
       warning("Invalid image path or object provided: ", paste(img, collapse=","))
       return(NULL)
     }
 
     img_key <- if(is.character(img)) img else digest::digest(img)
-
     cached_img <- get_set_cached_image(img_key)
 
     if (is.null(cached_img)) {
-      # message("Loading image...")
       if (!is(img, "magick-image")) {
         if (is.character(img)) {
-          if (tools::file_ext(img) == "svg") {
-            # message("Attempting to read SVG file...")
-            tryCatch({
-              cached_img <- image_read_svg(img)
-              # message("SVG file read successfully")
-            }, error = function(e) {
-              warning("Error reading SVG file: ", e$message)
-              return(NULL)
-            })
-          } else if (tools::file_ext(img) == "pdf") {
-            cached_img <- image_read_pdf(img)
-          } else {
-            cached_img <- image_read(img)
-          }
+          cached_img <- switch(tools::file_ext(img),
+                               "svg" = image_read_svg(img),
+                               "pdf" = image_read_pdf(img),
+                               image_read(img))
         } else {
           warning("Unexpected img type: ", class(img))
           return(NULL)
@@ -399,25 +378,24 @@ prepare_image <- function(img, colour, alpha, angle, image_fun) {
       return(NULL)
     }
 
-    img_info <- image_info(cached_img)
-    if (img_info$width == 0 || img_info$height == 0) {
-      warning("Image has zero width or height")
-      return(NULL)
-    }
-
-    # Apply image_fun if provided
     if (!is.null(image_fun) && is.function(image_fun)) {
       cached_img <- image_fun(cached_img)
     }
 
-    # Apply rotation if angle is not 0
     if (!is.null(angle) && !is.na(angle) && angle != 0) {
       cached_img <- image_rotate(cached_img, angle)
     }
 
-    # Apply colour if provided
+    # add text of image
+    # if (!is.null(alpha) && !is.na(alpha)) {
+    #   cached_img <- magick::image_annotate(cached_img, text, color = "none",
+    #                                strokecolor = "none",
+    #                                size = 1)
+    # }
+
+    # Handle alpha and colour
     if (!is.null(colour) && !is.na(colour)) {
-      cached_img <- magick::image_colorize(cached_img, opacity = alpha * 100, color = colour)
+      cached_img <- image_colorize(cached_img, opacity = opacity, color = colour)
     }
 
     return(cached_img)
@@ -426,6 +404,7 @@ prepare_image <- function(img, colour, alpha, angle, image_fun) {
     return(NULL)
   })
 }
+
 
 # Helper function to safely create a rasterGrob
 safe_rasterGrob <- function(x, y, image, width, height, just, interpolate) {
