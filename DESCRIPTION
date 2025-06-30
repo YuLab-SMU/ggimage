@@ -33,5 +33,5 @@ License: Artistic-2.0
 URL: https://github.com/GuangchuangYu/ggimage (devel), https://yulab-smu.top/pkgdocs/ggimage.html (vignette)
 BugReports: https://github.com/GuangchuangYu/ggimage/issues
 Encoding: UTF-8
-RoxygenNote: 7.3.0
+RoxygenNote: 7.3.2
 Roxygen: list(markdown = TRUE)
