@@ -70,7 +70,8 @@ phylopic <- function(id) {
 # is a 128-bit number. It has 32 alphanumeric characters in the
 # form of 8-4-4-4-12.
 .autocomplete_uid <- function(x){
-    x <- lapply(x, function(i){
+    x <- unlist(
+        lapply(x, function(i){
         x1 <- unlist(strsplit(i, split='-'))
         flag1 <- length(x1) == 5
         if (!flag1){
@@ -83,7 +84,8 @@ phylopic <- function(id) {
         }
         return(i)
       }
-    ) |> unlist()
+    )
+    )
     return(x)
     
 }
