@@ -20,11 +20,7 @@ check_url <- function(url) {
 }
 
 get_github_files <- function(owner, repo, path, branch = "main") {
-  if (!requireNamespace("jsonlite", quietly = TRUE)) {
-    install.packages("jsonlite")
-  }
-  
-  url <- paste0(
+    url <- paste0(
     "https://api.github.com/repos/",
     owner, "/", repo,
     "/contents/", path,
