@@ -33,5 +33,5 @@ ggplot2 layer
 geom layer for using icon
 }
 \author{
-guangchuang yu
+Guangchuang Yu
 }
