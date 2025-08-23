@@ -35,9 +35,9 @@ flag <- function(flag) {
 ##' @export
 ##' @author Guangchuang Yu
 list.flag <- function() {
-     x <- readLines("https://github.com/behdad/region-flags/tree/gh-pages/png")
-     y <- x[grep("title=\"\\w+\\.png", x)]
-     sub(".*title=\"(\\w+)\\.png.*", '\\1', y)
+  # https://github.com/fonttools/region-flags/tree/gh-pages/png
+  files <- get_github_files("fonttools", "region-flags", "png", "gh-pages")
+  sub(".png", "", files)
 }
 
 

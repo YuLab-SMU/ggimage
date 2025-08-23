@@ -1,5 +1,6 @@
-## ggimage 0.3.3.001
+## ggimage 0.3.3.002
 
++ fixed `list.flag()`  (2025-08-24, Sun, #50)
 + update source url of `geom_flag()` (2025-08-24, Sun, #55)
 
 ## ggimage 0.3.3

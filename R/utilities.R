@@ -19,6 +19,23 @@ check_url <- function(url) {
     return(url)
 }
 
+get_github_files <- function(owner, repo, path, branch = "main") {
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    install.packages("jsonlite")
+  }
+  
+  url <- paste0(
+    "https://api.github.com/repos/",
+    owner, "/", repo,
+    "/contents/", path,
+    "?ref=", branch
+  )
+  
+  res <- jsonlite::fromJSON(url)
+  
+  return(res$name)
+}
+
 zeroGrob <- function() .zeroGrob
 
 .zeroGrob <- grid::grob(cl = "zeroGrob", name = "NULL")
