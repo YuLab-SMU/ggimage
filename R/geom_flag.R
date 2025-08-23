@@ -6,15 +6,22 @@
 ##' @return ggplot2 layer
 ##' @export
 ##' @author Guangchuang Yu
-geom_flag <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
-                      na.rm=FALSE, by="width", ...) {
+geom_flag <- function(mapping=NULL, 
+                    data=NULL, 
+                    inherit.aes=TRUE,
+                    na.rm=FALSE, 
+                    by="width", 
+                    ...) {
+  
     geom_image(mapping, data, inherit.aes=inherit.aes, na.rm=na.rm, ..., .fun = flag)
 }
 
 flag <- function(flag) {
-  
-#url <- paste0('https://behdad.github.io/region-flags/png/', toupper(flag), ".png")
-url <- paste0('https://raw.githubusercontent.com/hampusborgos/country-flags/main/png250px/', tolower(flag), ".png")
+    ## no long works, see issue #55
+    ## this repo now only contains svg files
+    # url <- paste0('https://raw.githubusercontent.com/hampusborgos/country-flags/main/png250px/', tolower(flag), ".png")
+
+    url <- sprintf("https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/%s.png", toupper(flag))
 
     check_url(url)
 }

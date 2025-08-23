@@ -1,3 +1,7 @@
+## ggimage 0.3.3.001
+
++ update source url of `geom_flag()` (2025-08-24, Sun, #55)
+
 ## ggimage 0.3.3
 
 + now the image will not be distorted when both width and height are specified. (2023-06-19, Mon, #47)

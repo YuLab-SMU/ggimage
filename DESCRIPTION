@@ -1,6 +1,6 @@
 Package: ggimage
 Title: Use Image in 'ggplot2'
-Version: 0.3.3
+Version: 0.3.3.001
 Authors@R: person("Guangchuang", "Yu",
                   email = "guangchuangyu@gmail.com",
                   role = c("aut", "cre"),
@@ -8,7 +8,7 @@ Authors@R: person("Guangchuang", "Yu",
 Description: Supports image files and graphic objects to be visualized in
     'ggplot2' graphic system.
 Depends:
-    R (>= 3.4.0),
+    R (>= 4.1.0),
     ggplot2
 Imports:
     ggfun,
