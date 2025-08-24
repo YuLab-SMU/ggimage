@@ -1,6 +1,7 @@
-## ggimage 0.3.3.003
+## ggimage 0.3.3.004
 
-+ add interactive version and compatible with ggplot2 v=4.0.0 (2025-08-24, Sun)
++ remove `geom_twitchemote()` (2025-08-24, Sun, #37)
++ add interactive version and compatible with ggplot2 v=4.0.0 (2025-08-24, Sun, #58)
   - geom_image_interactive
   - geom_phylopic_interactive
   - GeomInteractiveImage
