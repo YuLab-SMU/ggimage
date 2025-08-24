@@ -11,9 +11,8 @@ Supports image files and graphic objects to be visualized in 'ggplot2' graphic s
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/GuangchuangYu/ggimage (devel)}
-  \item \url{https://yulab-smu.top/pkgdocs/ggimage.html (vignette)}
-  \item Report bugs at \url{https://github.com/GuangchuangYu/ggimage/issues}
+  \item \url{https://github.com/YuLab-SMU/ggimage}
+  \item Report bugs at \url{https://github.com/YuLab-SMU/ggimage/issues}
 }
 
 }
