@@ -1,5 +1,9 @@
-## ggimage 0.3.3.002
+## ggimage 0.3.3.003
 
++ add interactive version and compatible with ggplot2 v=4.0.0 (2025-08-24, Sun)
+  - geom_image_interactive
+  - geom_phylopic_interactive
+  - GeomInteractiveImage
 + fixed `list.flag()`  (2025-08-24, Sun, #50)
 + update source url of `geom_flag()` (2025-08-24, Sun, #55)
 
