@@ -21,7 +21,9 @@ Imports:
     tibble,
     tools,
     utils,
-    withr
+    withr,
+    purrr,
+    rlang
 Suggests:
     ape,
     ggtree,

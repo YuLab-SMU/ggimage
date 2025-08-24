@@ -75,27 +75,11 @@ GeomImage <- ggproto("GeomImage", Geom,
                                        size=0.05, colour = NULL, angle = 0, alpha=1),
 
                      draw_panel = function(data, panel_params, coord, by, na.rm=FALSE,
-                                           .fun = NULL, height, image_fun = NULL,
+                                           .fun = NULL, image_fun = NULL,
                                            hjust=0.5, nudge_x = 0, nudge_y = 0, asp=1) {
-                         data$x <- data$x + nudge_x
-                         data$y <- data$y + nudge_y
-                         data <- coord$transform(data, panel_params)
+                         data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y)
 
-                         if (!is.null(.fun) && is.function(.fun)) {
-                             data$image <- .fun(data$image)
-                         }
-                         if (is.null(data$image)) return(NULL)
-
-                         if (by=='height' && "y.range" %in% names(panel_params)) {
-                             adjs <- data$size / diff(panel_params$y.range)
-                         } else if (by == 'width' && "x.range" %in% names(panel_params)){
-                             adjs <- data$size / diff(panel_params$x.range)
-                         } else if ("r.range" %in% names(panel_params)) {
-                             adjs <- data$size / diff(panel_params$r.range)
-                         } else {
-                             adjs <- data$size
-                         }
-                         adjs[is.infinite(adjs)] <- 1
+                         adjs <- GeomImage$build_adjust(data, panel_params, by)
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
                               imageGrob(x = data$x[i], 
@@ -113,6 +97,33 @@ GeomImage <- ggproto("GeomImage", Geom,
                               )
                              })
                          ggname("geom_image", gTree(children = do.call(gList, grobs)))
+                     },
+                     make_image_data = function(data, panel_params, coord, .fun, nudge_x = 0, nudge_y = 0,...){
+                         data$x <- data$x + nudge_x
+                         data$y <- data$y + nudge_y
+                         data <- coord$transform(data, panel_params)
+
+                         if (!is.null(.fun) && is.function(.fun)) {
+                             data$image <- .fun(data$image)
+                         }
+                         if (is.null(data$image)){
+                             return(NULL)         
+                         }else{
+                             return(data)
+                         }
+                     },
+                     build_adjust = function(data, panel_params, by){
+                         if (by=='height' && "y.range" %in% names(panel_params)) {
+                             adjs <- data$size / diff(panel_params$y.range)
+                         } else if (by == 'width' && "x.range" %in% names(panel_params)){
+                             adjs <- data$size / diff(panel_params$x.range)
+                         } else if ("r.range" %in% names(panel_params)) {
+                             adjs <- data$size / diff(panel_params$r.range)
+                         } else {
+                             adjs <- data$size
+                         }
+                         adjs[is.infinite(adjs)] <- 1
+                         return(adjs)
                      },
                      non_missing_aes = c("size", "image"),
                      required_aes = c("x", "y"),
