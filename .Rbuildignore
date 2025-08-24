@@ -6,3 +6,4 @@ README.Rmd
 README.md
 NEWS.md
 .vscode
+^CRAN-SUBMISSION$
