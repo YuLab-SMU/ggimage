@@ -5,7 +5,7 @@
 #' @param ... see also the parameters of `geom_image()` of `ggimage`
 #' @export
 geom_image_interactive <- function(...){
-  rlang::check_installed(c('ggiraph'), "for `geom_image_interactive()`.")
+  # rlang::check_installed(c('ggiraph'), "for `geom_image_interactive()`.")
   layer_interactive(geom_image, interactive_geom = GeomInteractiveImage,...)
 }
 
@@ -17,7 +17,7 @@ geom_image_interactive <- function(...){
 #' @param ... see also the parameters of `geom_phylopic()` of `ggimage`
 #' @export
 geom_phylopic_interactive <- function(...){
-  rlang::check_installed(c('ggiraph'), "for `geom_phylopic_interactive()`.")
+  # rlang::check_installed(c('ggiraph'), "for `geom_phylopic_interactive()`.")
   layer_interactive(geom_phylopic, interactive_geom = GeomInteractiveImage,...)
 }
 
@@ -25,6 +25,7 @@ geom_phylopic_interactive <- function(...){
 
 #' @importFrom purrr detect_index
 #' @importFrom rlang caller_env
+#' @import ggiraph
 layer_interactive <- getFromNamespace("layer_interactive", "ggiraph")
 add_default_interactive_aes <- getFromNamespace("add_default_interactive_aes", "ggiraph")
 interactive_geom_parameters <- getFromNamespace("interactive_geom_parameters", "ggiraph")
