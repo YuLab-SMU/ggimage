@@ -13,3 +13,21 @@ geom_image_interactive(...)
 The geometry is based on \code{geom_image()}.
 See the documentation for those functions for more details.
 }
+\examples{
+\dontrun{
+library("ggplot2")
+library("ggimage")
+library("ggiraph")
+set.seed(2017-02-21)
+d <- data.frame(x = rnorm(10),
+                y = rnorm(10),
+                image = sample(c("https://www.r-project.org/logo/Rlogo.png",
+                                "https://jeroenooms.github.io/images/frink.png"),
+                              size=10, replace = TRUE)
+               )
+d$id <- sample(10)
+p <- ggplot(d, aes(x, y)) + 
+     geom_image_interactive(aes(image=image, tooltip = id, data_id = id))
+girafe(ggobj = p)
+}
+}
