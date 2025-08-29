@@ -73,94 +73,57 @@ GeomImage <- ggproto("GeomImage", Geom,
                      default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"),
                                        size=0.05, colour = NULL, angle = 0, opacity=100),
 
-                     draw_panel = function(data, panel_params, coord, by, na.rm = FALSE,
-                                           .fun = NULL, height, image_fun = NULL,
-                                           hjust = 0.5, nudge_x = 0, nudge_y = 0, asp = 1) {
-                       data$x <- data$x + nudge_x
-                       data$y <- data$y + nudge_y
+                     draw_panel = function(data, panel_params, coord, by, na.rm=FALSE,
+                                           .fun = NULL, image_fun = NULL,
+                                           hjust=0.5, nudge_x = 0, nudge_y = 0, asp=1) {
+                         data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y)
 
-                       valid_rows <- !is.na(data$image) & data$image != ""
-                       if (sum(!valid_rows) > 0) {
-                         warning(sum(!valid_rows), " rows removed due to invalid image paths")
-                         data <- data[valid_rows, ]
-                       }
+                         adjs <- GeomImage$build_adjust(data, panel_params, by)
 
-                       if (nrow(data) == 0) {
-                         warning("No valid data rows after filtering")
-                         return(ggname("geom_image", nullGrob()))
-                       }
-
-                       coords <- coord$transform(data, panel_params)
-                       plot_width <- diff(panel_params$x.range)
-                       plot_height <- diff(panel_params$y.range)
-
-                       coords$group <- seq_len(nrow(coords))  # Each row is its own group
-                       grobs <- lapply(split(coords, coords$group), function(group_data) {
-                         img <- group_data$image
-                         prepared_img <- prepare_image(img, group_data$colour, group_data$opacity, group_data$angle, image_fun)
-
-                         if (is.null(prepared_img)) {
-                           warning("Failed to prepare image: ", paste(img, collapse=","))
-                           return(NULL)
-                         }
-
-                         img_info <- image_info(prepared_img)
-                         img_asp <- img_info$width / img_info$height
-
-                         # Use size as a scaling factor (default 0.05 = 5% of plot width)
-                         base_size <- min(plot_width, plot_height) * group_data$size[1]
-
-                         if (by == "width") {
-                           widths <- base_size
-                           heights <- base_size / img_asp
-                         } else {
-                           heights <- base_size
-                           widths <- base_size * img_asp
-                         }
-
-                         # Convert to npc units
-                         widths_npc <- widths / plot_width
-                         heights_npc <- heights / plot_height
-
-                         x_pos <- group_data$x
-                         y_pos <- group_data$y
-
-                         # Adjust x position based on hjust
-                         if (hjust == 0 || hjust == "left") {
-                           x_pos <- x_pos + unit(widths_npc/2, "npc")
-                         } else if (hjust == 1 || hjust == "right") {
-                           x_pos <- x_pos - unit(widths_npc/2, "npc")
-                         }
-
-                         grob <- safe_rasterGrob(x = x_pos,
-                                                 y = y_pos,
-                                                 image = prepared_img,
-                                                 width = unit(widths_npc, "npc"),
-                                                 height = unit(heights_npc, "npc"),
-                                                 just = c(hjust, 0.5),
-                                                 interpolate = TRUE)
-
-                         return(grob)
-                       })
-
-                       # Filter out NULL grobs
-                       valid_grobs <- Filter(function(x) !is.null(x) && inherits(x, "grob"), grobs)
-
-                       if (length(valid_grobs) == 0) {
-                         warning("No valid grobs created")
-                         return(ggname("geom_image", nullGrob()))
-                       }
-
-                       result <- tryCatch({
-                         ggname("geom_image", gTree(children = do.call(gList, valid_grobs)))
-                       }, error = function(e) {
-                         message("Error in creating gTree: ", e$message)
-                         ggname("geom_image", nullGrob())
-                       })
-
-                       return(result)
+                         grobs <- lapply(seq_len(nrow(data)), function(i){
+                              imageGrob(x = data$x[i], 
+                                        y = data$y[i], 
+                                        size = data$size[i], 
+                                        img = data$image[i],
+                                        colour = data$colour[i],
+                                        alpha = data$alpha[i],
+                                        angle = data$angle[i],
+                                        adj = adjs[i],
+                                        image_fun = image_fun,
+                                        hjust = hjust,
+                                        by = by,
+                                        asp = asp
+                              )
+                             })
+                         ggname("geom_image", gTree(children = do.call(gList, grobs)))
                      },
+                     make_image_data = function(data, panel_params, coord, .fun, nudge_x = 0, nudge_y = 0,...){
+                         data$x <- data$x + nudge_x
+                         data$y <- data$y + nudge_y
+                         data <- coord$transform(data, panel_params)
 
+                         if (!is.null(.fun) && is.function(.fun)) {
+                             data$image <- .fun(data$image)
+                         }
+                         if (is.null(data$image)){
+                             return(NULL)         
+                         }else{
+                             return(data)
+                         }
+                     },
+                     build_adjust = function(data, panel_params, by){
+                         if (by=='height' && "y.range" %in% names(panel_params)) {
+                             adjs <- data$size / diff(panel_params$y.range)
+                         } else if (by == 'width' && "x.range" %in% names(panel_params)){
+                             adjs <- data$size / diff(panel_params$x.range)
+                         } else if ("r.range" %in% names(panel_params)) {
+                             adjs <- data$size / diff(panel_params$r.range)
+                         } else {
+                             adjs <- data$size
+                         }
+                         adjs[is.infinite(adjs)] <- 1
+                         return(adjs)
+                     },
                      non_missing_aes = c("size", "image"),
                      required_aes = c("x", "y"),
                      draw_key = draw_key_image

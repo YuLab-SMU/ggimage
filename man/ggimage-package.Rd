@@ -11,14 +11,18 @@ Supports image files and graphic objects to be visualized in 'ggplot2' graphic s
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/GuangchuangYu/ggimage (devel)}
-  \item \url{https://yulab-smu.top/pkgdocs/ggimage.html (vignette)}
-  \item Report bugs at \url{https://github.com/GuangchuangYu/ggimage/issues}
+  \item \url{https://github.com/YuLab-SMU/ggimage}
+  \item Report bugs at \url{https://github.com/YuLab-SMU/ggimage/issues}
 }
 
 }
 \author{
-\strong{Maintainer}: Guangchuang Yu \email{guangchuangyu@gmail.com} (\href{https://orcid.org/0000-0002-6485-8781}{ORCID})
+\strong{Maintainer}: Guangchuang Yu \email{guangchuangyu@gmail.com} (\href{https://orcid.org/0000-0002-6485-8781}{ORCID}) [copyright holder]
+
+Other contributors:
+\itemize{
+  \item Shuangbin Xu \email{xshuangbin@163.com} (\href{https://orcid.org/0000-0003-3513-5362}{ORCID}) [contributor]
+}
 
 }
 \keyword{internal}

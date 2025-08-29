@@ -1,3 +1,13 @@
+## ggimage 0.3.4
+
++ remove `geom_twitchemote()` (2025-08-24, Sun, #37)
++ add interactive version and compatible with ggplot2 v=4.0.0 (2025-08-24, Sun, #58)
+  - geom_image_interactive
+  - geom_phylopic_interactive
+  - GeomInteractiveImage
++ fixed `list.flag()`  (2025-08-24, Sun, #50)
++ update source url of `geom_flag()` (2025-08-24, Sun, #55)
+
 ## ggimage 0.3.3
 
 + now the image will not be distorted when both width and height are specified. (2023-06-19, Mon, #47)

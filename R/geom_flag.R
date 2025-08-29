@@ -6,15 +6,22 @@
 ##' @return ggplot2 layer
 ##' @export
 ##' @author Guangchuang Yu
-geom_flag <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
-                      na.rm=FALSE, by="width", ...) {
+geom_flag <- function(mapping=NULL, 
+                    data=NULL, 
+                    inherit.aes=TRUE,
+                    na.rm=FALSE, 
+                    by="width", 
+                    ...) {
+  
     geom_image(mapping, data, inherit.aes=inherit.aes, na.rm=na.rm, ..., .fun = flag)
 }
 
 flag <- function(flag) {
-  
-#url <- paste0('https://behdad.github.io/region-flags/png/', toupper(flag), ".png")
-url <- paste0('https://raw.githubusercontent.com/hampusborgos/country-flags/main/png250px/', tolower(flag), ".png")
+    ## no long works, see issue #55
+    ## this repo now only contains svg files
+    # url <- paste0('https://raw.githubusercontent.com/hampusborgos/country-flags/main/png250px/', tolower(flag), ".png")
+
+    url <- sprintf("https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/%s.png", toupper(flag))
 
     check_url(url)
 }
@@ -28,9 +35,9 @@ url <- paste0('https://raw.githubusercontent.com/hampusborgos/country-flags/main
 ##' @export
 ##' @author Guangchuang Yu
 list.flag <- function() {
-     x <- readLines("https://github.com/behdad/region-flags/tree/gh-pages/png")
-     y <- x[grep("title=\"\\w+\\.png", x)]
-     sub(".*title=\"(\\w+)\\.png.*", '\\1', y)
+  # https://github.com/fonttools/region-flags/tree/gh-pages/png
+  files <- get_github_files("fonttools", "region-flags", "png", "gh-pages")
+  sub(".png", "", files)
 }
 
 

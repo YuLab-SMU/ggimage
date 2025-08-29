@@ -14,7 +14,6 @@ html_preview: false
 ![](http://cranlogs.r-pkg.org/badges/grand-total/ggimage?color=green)
 ![](http://cranlogs.r-pkg.org/badges/ggimage?color=green)
 ![](http://cranlogs.r-pkg.org/badges/last-week/ggimage?color=green)
-[![gitter](https://img.shields.io/badge/GITTER-join%20chat-green.svg)](https://gitter.im/GuangchuangYu/Bioinformatics)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.344625.svg)](https://doi.org/10.5281/zenodo.344625)
 
 
@@ -23,12 +22,9 @@ Supports image files and graphic objects to be visualized in 'ggplot2' graphic s
 
 ## :writing_hand: Authors
 
-Guangchuang YU <https://guangchuangyu.github.io>
+Guangchuang YU <https://yulab-smu.top>
 
 School of Basic Medical Sciences, Southern Medical University
-
-[![saythanks](https://img.shields.io/badge/say-thanks-ff69b4.svg)](https://saythanks.io/to/GuangchuangYu)
-`r badger::badge_custom("follow me on", "WeChat", "green", "https://guangchuangyu.github.io/blog_images/biobabble.jpg")`
 
 
 
@@ -47,7 +43,7 @@ Or the development version from github:
 ```r
 setRepositories(ind=1:2)
 ## install.packages("devtools")
-devtools::install_github("GuangchuangYu/ggimage")
+devtools::install_github("YuLab-SMU/ggimage")
 ```
 
 ## :book: Vignette

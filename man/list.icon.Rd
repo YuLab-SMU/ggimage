@@ -13,5 +13,5 @@ icon vector
 list available icon
 }
 \author{
-guangchuang yu
+Guangchuang Yu
 }

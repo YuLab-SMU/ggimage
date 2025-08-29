@@ -13,5 +13,5 @@ pokemon vector
 list available pokemon
 }
 \author{
-guangchuang yu
+Guangchuang Yu
 }
