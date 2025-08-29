@@ -33,28 +33,27 @@
 ##' ggplot(d, aes(x, y)) + geom_image(aes(image=image))
 ##' }
 ##' @author Guangchuang Yu
-geom_image <- function(mapping=NULL, data=NULL, stat="identity",
-                       position="identity", inherit.aes=TRUE,
-                       na.rm=FALSE, by="width", nudge_x = 0, ...) {
+geom_image <- function(mapping = NULL, data = NULL, stat = "identity",
+                       position = "identity", inherit.aes = TRUE,
+                       na.rm = FALSE, by = "width", nudge_x = 0, ...) {
 
-    by <- match.arg(by, c("width", "height"))
+  by <- match.arg(by, c("width", "height"))
 
-    layer(
-        data=data,
-        mapping=mapping,
-        geom=GeomImage,
-        stat=stat,
-        position=position,
-        show.legend=NA,
-        inherit.aes=inherit.aes,
-        params = list(
-            na.rm = na.rm,
-            by = by,
-            nudge_x = nudge_x,
-            ##angle = angle,
-            ...),
-        check.aes = FALSE
-    )
+  layer(
+    data = data,
+    mapping = mapping,
+    geom = GeomImage,
+    stat = stat,
+    position = position,
+    show.legend = NA,
+    inherit.aes = inherit.aes,
+    params = list(
+      na.rm = na.rm,
+      by = by,
+      nudge_x = nudge_x,
+      ...),
+    check.aes = FALSE
+  )
 }
 
 
@@ -64,15 +63,15 @@ geom_image <- function(mapping=NULL, data=NULL, stat="identity",
 ##' @importFrom ggplot2 draw_key_blank
 ##' @importFrom grid gTree
 ##' @importFrom grid gList
+##' @importFrom grid nullGrob
 GeomImage <- ggproto("GeomImage", Geom,
                      setup_data = function(data, params) {
-                         if (is.null(data$subset))
-                             return(data)
-                         data[which(data$subset),]
+                       if (is.null(data$subset)) return(data)
+                       data[which(data$subset),]
                      },
 
-                     default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"), 
-                                       size=0.05, colour = NULL, angle = 0, alpha=1),
+                     default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"),
+                                       size=0.05, colour = NULL, angle = 0, opacity=100),
 
                      draw_panel = function(data, panel_params, coord, by, na.rm=FALSE,
                                            .fun = NULL, image_fun = NULL,
@@ -127,9 +126,17 @@ GeomImage <- ggproto("GeomImage", Geom,
                      },
                      non_missing_aes = c("size", "image"),
                      required_aes = c("x", "y"),
-                     draw_key = draw_key_image ## draw_key_blank ## need to write the `draw_key_image` function.
-                     )
+                     draw_key = draw_key_image
+)
 
+# Add this function to your implementation
+print_plot <- function(p) {
+  tryCatch({
+    print(p)
+  }, error = function(e) {
+    message("Error while printing plot: ", e$message)
+  })
+}
 
 ##' @importFrom magick image_read
 ##' @importFrom magick image_read_svg
@@ -142,70 +149,235 @@ GeomImage <- ggproto("GeomImage", Geom,
 ##' @importFrom grDevices col2rgb
 ##' @importFrom methods is
 ##' @importFrom tools file_ext
-imageGrob <- function(x, y, size, img, colour, alpha, angle, adj, image_fun, hjust, by, asp=1, default.units='native'){
-    if (is.na(img)){
-        return(zeroGrob())
-    }
+imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by, asp=1, default.units='native') {
+  if (is.na(img)) {
+    return(zeroGrob())
+  }
+
+  # Check cache first
+  cached_img <- get_set_cached_image(img)
+  if (is.null(cached_img)) {
     if (!is(img, "magick-image")) {
-        if (tools::file_ext(img) == "svg") {
-            img <- image_read_svg(img)
-        } else if (tools::file_ext(img) == "pdf") {
-            img <- image_read_pdf(img)
-        } else {
-            img <- image_read(img)
-        }
-        asp <- getAR2(img)/asp
-    }
-
-    if (size == Inf) {
-        x <- 0.5
-        y <- 0.5
-        width <- 1
-        height <- 1
-    } else if (by == "width") {
-        width <- size * adj
-        height <- size / asp
+      if (tools::file_ext(img) == "svg") {
+        cached_img <- image_read_svg(img)
+      } else if (tools::file_ext(img) == "pdf") {
+        cached_img <- image_read_pdf(img)
+      } else {
+        cached_img <- image_read(img)
+      }
+      get_set_cached_image(img, cached_img)
     } else {
-        width <- size * asp * adj
-        height <- size
+      cached_img <- img
+    }
+  }
+
+  asp <- getAR2(cached_img)/asp
+
+  if (size == Inf) {
+    x <- 0.5
+    y <- 0.5
+    width <- 1
+    height <- 1
+  } else if (by == "width") {
+    width <- size * adj
+    height <- size / asp
+  } else {
+    width <- size * asp * adj
+    height <- size
+  }
+
+  if (hjust == 0 || hjust == "left") {
+    x <- x + width/2
+  } else if (hjust == 1 || hjust == "right") {
+    x <- x - width/2
+  }
+
+  if (!is.null(image_fun)) {
+    cached_img <- image_fun(cached_img)
+  }
+
+  if (angle != 0) {
+    cached_img <- image_rotate(cached_img, angle)
+  }
+
+  if (!is.null(colour)) {
+    cached_img <- color_image(cached_img, colour, alpha)
+  }
+
+  grob <- rasterGrob(
+    x = x,
+    y = y,
+    image = cached_img,
+    default.units = default.units,
+    height = height,
+    width = if(size == Inf) width else NULL
+  )
+
+  return(grob)
+}
+
+# Internal cache environment
+.image_cache <- new.env(parent = emptyenv())
+
+#' Clear the image cache
+#'
+#' This function clears the internal image cache used by the package.
+#' Call this function if you want to free up memory or ensure fresh image loading.
+#'
+#' @export
+clear_image_cache <- function() {
+  rm(list = ls(envir = .image_cache), envir = .image_cache)
+}
+
+#' Get the size of the image cache
+#'
+#' This function returns the number of images currently stored in the cache.
+#'
+#' @return An integer representing the number of cached images.
+#' @export
+get_image_cache_size <- function() {
+  length(ls(envir = .image_cache))
+}
+
+#' Internal function to get or set cached image
+#'
+#' @param key The key (usually file path) for the image
+#' @param value The image object to cache (optional)
+#' @return The cached image object or NULL if not found
+get_set_cached_image <- function(key, value = NULL) {
+  if (is.null(key) || key == "") {
+    warning("Invalid key provided to get_set_cached_image")
+    return(NULL)
+  }
+
+  if (is.null(value)) {
+    tryCatch({
+      if (exists(key, envir = .image_cache, inherits = FALSE)) {
+        return(get(key, envir = .image_cache, inherits = FALSE))
+      } else {
+        return(NULL)
+      }
+    }, error = function(e) {
+      warning("Error accessing cache for key: ", key, ". Error: ", e$message)
+      return(NULL)
+    })
+  } else {
+    tryCatch({
+      assign(key, value, envir = .image_cache)
+      return(value)
+    }, error = function(e) {
+      warning("Error setting cache for key: ", key, ". Error: ", e$message)
+      return(value)
+    })
+  }
+}
+
+#' Safely check if a value is NULL, NA, or an empty string
+#'
+#' @param x The value to check
+#' @return TRUE if the value is NULL, NA, or an empty string, FALSE otherwise
+is_null_or_empty <- function(x) {
+  is.null(x) ||
+    (is.atomic(x) && length(x) == 1 && (is.na(x) || x == ""))
+}
+
+#' Prepare image for rendering
+#'
+#' @param img The image path or magick image object
+#' @param colour The colour to apply to the image
+#' @param alpha The alpha value for transparency
+#' @param angle The rotation angle
+#' @param image_fun A function to apply to the image
+#' @return A prepared magick image object or NULL if preparation fails
+#' Safely check if a value is NULL, NA, an empty string, or logically invalid
+#'
+#' @param x The value to check
+#' @return TRUE if the value is NULL, NA, an empty string, or logically invalid; FALSE otherwise
+is_invalid <- function(x) {
+  is.null(x) ||
+    length(x) == 0 ||
+    (is.atomic(x) && length(x) == 1 && (is.na(x) || x == "" || !is.character(x)))
+}
+
+#' Prepare image for rendering with extensive error checking and logging
+#'
+#' @param img The image path or magick image object
+#' @param colour The colour to apply to the image
+#' @param alpha The alpha value for transparency
+#' @param angle The rotation angle
+#' @param image_fun A function to apply to the image
+#' @return A prepared magick image object or NULL if preparation fails
+prepare_image <- function(img, colour, opacity, angle, image_fun) {
+  tryCatch({
+    if (is_invalid(img)) {
+      warning("Invalid image path or object provided: ", paste(img, collapse=","))
+      return(NULL)
     }
 
-    if (hjust == 0 || hjust == "left") {
-        x <- x + width/2
-    } else if (hjust == 1 || hjust == "right") {
-        x <- x - width/2
+    img_key <- if(is.character(img)) img else digest::digest(img)
+    cached_img <- get_set_cached_image(img_key)
+
+    if (is.null(cached_img)) {
+      if (!is(img, "magick-image")) {
+        if (is.character(img)) {
+          cached_img <- switch(tools::file_ext(img),
+                               "svg" = image_read_svg(img),
+                               "pdf" = image_read_pdf(img),
+                               image_read(img))
+        } else {
+          warning("Unexpected img type: ", class(img))
+          return(NULL)
+        }
+        if (!is.null(cached_img)) {
+          get_set_cached_image(img_key, cached_img)
+        }
+      } else {
+        cached_img <- img
+      }
     }
 
-    if (!is.null(image_fun)) {
-        img <- image_fun(img)
-    }    
-
-    if (angle != 0) {
-        img <- image_rotate(img, angle)
+    if (is.null(cached_img)) {
+      warning("Failed to load image")
+      return(NULL)
     }
 
-    if (!is.null(colour)){
-        img <- color_image(img, colour, alpha)
+    if (!is.null(image_fun) && is.function(image_fun)) {
+      cached_img <- image_fun(cached_img)
     }
-    
-    if (size == Inf){
-       grob <- rasterGrob(x = x,
-                          y = y,
-                          image = img,
-                          default.units = default.units,
-                          height = height,
-                          width = width
-                          )
-    }else{
-       grob <- rasterGrob(
-                          x = x,
-                          y = y,
-                          image = img,
-                          default.units = default.units,
-                          height = height
-                       )        
+
+    if (!is.null(angle) && !is.na(angle) && angle != 0) {
+      cached_img <- image_rotate(cached_img, angle)
     }
-    return(grob)
+
+    # add text of image
+    # if (!is.null(alpha) && !is.na(alpha)) {
+    #   cached_img <- magick::image_annotate(cached_img, text, color = "none",
+    #                                strokecolor = "none",
+    #                                size = 1)
+    # }
+
+    # Handle alpha and colour
+    if (!is.null(colour) && !is.na(colour)) {
+      cached_img <- image_colorize(cached_img, opacity = opacity, color = colour)
+    }
+
+    return(cached_img)
+  }, error = function(e) {
+    warning("Error in prepare_image: ", e$message)
+    return(NULL)
+  })
+}
+
+
+# Helper function to safely create a rasterGrob
+safe_rasterGrob <- function(x, y, image, width, height, just, interpolate) {
+  tryCatch({
+    rasterGrob(x = x, y = y, image = image, width = width, height = height,
+               just = just, interpolate = interpolate)
+  }, error = function(e) {
+    warning("Error creating rasterGrob: ", e$message)
+    NULL
+  })
 }
 
 # ##' @importFrom grid makeContent
@@ -225,7 +397,7 @@ imageGrob <- function(x, y, size, img, colour, alpha, angle, adj, image_fun, hju
 #         w <- convertWidth(y$width, "cm", valueOnly = TRUE)
 #         ## Decide how the units should be equal
 #         ## y$width <- y$height <- unit(sqrt(h*w), "cm")
-# 
+#
 #         y$width <- unit(w, "cm")
 #         y$height <- unit(h, "cm")
 #         x$children[[i]] <- y
@@ -235,8 +407,8 @@ imageGrob <- function(x, y, size, img, colour, alpha, angle, adj, image_fun, hju
 
 ##' @importFrom magick image_info
 getAR2 <- function(magick_image) {
-    info <- image_info(magick_image)
-    info$width/info$height
+  info <- image_info(magick_image)
+  info$width/info$height
 }
 
 
