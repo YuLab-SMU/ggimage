@@ -13,6 +13,7 @@ geom_image(
   na.rm = FALSE,
   by = "width",
   nudge_x = 0,
+  use_cache = TRUE,
   ...
 )
 }
@@ -33,6 +34,8 @@ geom_image(
 
 \item{nudge_x}{horizontal adjustment to nudge image}
 
+\item{use_cache}{logical, whether to use image caching for better performance (default: TRUE)}
+
 \item{...}{additional parameters}
 }
 \value{
@@ -52,7 +55,11 @@ d <- data.frame(x = rnorm(10),
                                 "https://jeroenooms.github.io/images/frink.png"),
                               size=10, replace = TRUE)
                )
+# With caching enabled (default)
 ggplot(d, aes(x, y)) + geom_image(aes(image=image))
+
+# With caching disabled
+ggplot(d, aes(x, y)) + geom_image(aes(image=image), use_cache=FALSE)
 }
 }
 \author{

@@ -15,6 +15,7 @@
 ##' @param na.rm logical, whether remove NA values
 ##' @param by one of 'width' or 'height'
 ##' @param nudge_x horizontal adjustment to nudge image
+##' @param use_cache logical, whether to use image caching for better performance (default: TRUE)
 ##' @param ... additional parameters
 ##' @return geom layer
 ##' @importFrom ggplot2 layer
@@ -30,12 +31,16 @@
 ##'                                 "https://jeroenooms.github.io/images/frink.png"),
 ##'                               size=10, replace = TRUE)
 ##'                )
+##' # With caching enabled (default)
 ##' ggplot(d, aes(x, y)) + geom_image(aes(image=image))
+##'
+##' # With caching disabled
+##' ggplot(d, aes(x, y)) + geom_image(aes(image=image), use_cache=FALSE)
 ##' }
 ##' @author Guangchuang Yu
 geom_image <- function(mapping=NULL, data=NULL, stat="identity",
                        position="identity", inherit.aes=TRUE,
-                       na.rm=FALSE, by="width", nudge_x = 0, ...) {
+                       na.rm=FALSE, by="width", nudge_x = 0, use_cache=TRUE, ...) {
 
     by <- match.arg(by, c("width", "height"))
 
@@ -51,6 +56,7 @@ geom_image <- function(mapping=NULL, data=NULL, stat="identity",
             na.rm = na.rm,
             by = by,
             nudge_x = nudge_x,
+            use_cache = use_cache,
             ##angle = angle,
             ...),
         check.aes = FALSE
@@ -71,29 +77,30 @@ GeomImage <- ggproto("GeomImage", Geom,
                          data[which(data$subset),]
                      },
 
-                     default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"), 
+                     default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"),
                                        size=0.05, colour = NULL, angle = 0, alpha=1),
 
                      draw_panel = function(data, panel_params, coord, by, na.rm=FALSE,
                                            .fun = NULL, image_fun = NULL,
-                                           hjust=0.5, nudge_x = 0, nudge_y = 0, asp=1) {
+                                           hjust=0.5, nudge_x = 0, nudge_y = 0, asp=1, use_cache=TRUE) {
                          data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y)
 
                          adjs <- GeomImage$build_adjust(data, panel_params, by)
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
-                              imageGrob(x = data$x[i], 
-                                        y = data$y[i], 
-                                        size = data$size[i], 
+                              imageGrob(x = data$x[i],
+                                        y = data$y[i],
+                                        size = data$size[i],
                                         img = data$image[i],
                                         colour = data$colour[i],
-                                        alpha = data$alpha[i],
+                                        opacity = data$alpha[i],
                                         angle = data$angle[i],
                                         adj = adjs[i],
                                         image_fun = image_fun,
                                         hjust = hjust,
                                         by = by,
-                                        asp = asp
+                                        asp = asp,
+                                        use_cache = use_cache
                               )
                              })
                          ggname("geom_image", gTree(children = do.call(gList, grobs)))
@@ -107,7 +114,7 @@ GeomImage <- ggproto("GeomImage", Geom,
                              data$image <- .fun(data$image)
                          }
                          if (is.null(data$image)){
-                             return(NULL)         
+                             return(NULL)
                          }else{
                              return(data)
                          }
@@ -127,9 +134,164 @@ GeomImage <- ggproto("GeomImage", Geom,
                      },
                      non_missing_aes = c("size", "image"),
                      required_aes = c("x", "y"),
-                     draw_key = draw_key_image ## draw_key_blank ## need to write the `draw_key_image` function.
+                     draw_key = draw_key_blank ## draw_key_blank ## need to write the `draw_key_image` function.
                      )
 
+#### caching mechanism for images ####
+# Using yulab.utils cache system:
+# - get_cache_item() auto-initializes cache items if they don't exist
+# - get_cache_element() retrieves specific elements from cache items
+# - update_cache_item() stores data in cache items
+# - rm_cache_item() removes cache items
+.IMAGE_CACHE_ITEM <- ".ggimage_cache_image"
+.IMAGE_TRANSFORM_CACHE_ITEM <- ".ggimage_cache_image_transform"
+
+# Helper function to check if image is invalid
+is_invalid <- function(img) {
+  is.null(img) || length(img) == 0 || (is.character(img) && (is.na(img) || img == ""))
+}
+
+# generate stable key：path→standardized character；object→digest
+#' @importFrom digest digest
+image_cache_key <- function(img) {
+  if (is.character(img)) {
+    # standardized path（not force mustWork，allow remote URL or path don't exits）
+    kp <- tryCatch(normalizePath(img, winslash = "/", mustWork = FALSE),
+                   error = function(e) img)
+    return(kp)
+  }
+  # for non-character：use digest
+  digest(img)
+}
+
+# generate transform key based on base_key and transform parameters
+image_transform_key <- function(base_key, angle, colour, opacity) {
+  paste(base_key,
+        if (is.null(angle) || is.na(angle)) 0 else angle,
+        if (is.null(colour) || is.na(colour)) "" else as.character(colour),
+        if (is.null(opacity) || is.na(opacity)) "" else as.character(opacity),
+        sep = "|")
+}
+
+# store image into cache
+cache_get_image <- function(key, use_cache = TRUE) {
+  if (!use_cache) return(NULL)
+  # attempt to read from cache; yulab.utils handles initialization
+  tryCatch(get_cache_element(.IMAGE_CACHE_ITEM, key), error = function(e) NULL)
+}
+
+# write cache (base image)
+cache_set_image <- function(key, value, use_cache = TRUE) {
+  if (!use_cache) return(invisible(value))
+  tryCatch(update_cache_item(.IMAGE_CACHE_ITEM, stats::setNames(list(value), key)),
+           error = function(e) invisible(NULL))
+  invisible(value)
+}
+
+# read cache（transformed image）
+cache_get_transformed <- function(tkey, use_cache = TRUE) {
+  if (!use_cache) return(NULL)
+  tryCatch(get_cache_element(.IMAGE_TRANSFORM_CACHE_ITEM, tkey), error = function(e) NULL)
+}
+
+# write cache（after transformed）
+cache_set_transformed <- function(tkey, value, use_cache = TRUE) {
+  if (!use_cache) return(invisible(value))
+  tryCatch(update_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM, stats::setNames(list(value), tkey)),
+           error = function(e) invisible(NULL))
+  invisible(value)
+}
+
+# clean all image cache（Optional）
+clear_image_cache <- function() {
+  tryCatch(rm_cache_item(.IMAGE_CACHE_ITEM), error = function(e) invisible(NULL))
+  tryCatch(rm_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM), error = function(e) invisible(NULL))
+}
+
+# Stat cache（Optional，return length）
+get_image_cache_size <- function() {
+  ci <- tryCatch(get_cache_item(.IMAGE_CACHE_ITEM), error = function(e) NULL)
+  length(ci)
+}
+
+get_image_transform_cache_size <- function() {
+  ci <- tryCatch(get_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM), error = function(e) NULL)
+  length(ci)
+}
+
+prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE) {
+  tryCatch({
+    if (is_invalid(img)) {
+      warning("Invalid image path or object provided: ", paste(img, collapse=","))
+      return(NULL)
+    }
+
+    # Unified generation of base images key
+    img_key <- image_cache_key(img)
+
+    # First check the base images cache
+    cached_img <- cache_get_image(img_key, use_cache)
+
+    # if don't hit the cache, read the raw image file.
+    if (is.null(cached_img)) {
+      if (!methods::is(img, "magick-image")) {
+        if (is.character(img)) {
+          cached_img <- switch(tools::file_ext(img),
+                               "svg" = magick::image_read_svg(img),
+                               "pdf" = magick::image_read_pdf(img),
+                               magick::image_read(img))
+        } else {
+          warning("Unexpected img type: ", class(img))
+          return(NULL)
+        }
+      } else {
+        cached_img <- img
+      }
+      if (!is.null(cached_img)) {
+        cache_set_image(img_key, cached_img, use_cache)
+      }
+    }
+
+    if (is.null(cached_img)) {
+      warning("Failed to load image")
+      return(NULL)
+    }
+
+    # —— secondary cache（optional）：cache for angle/colour/opacity image —— #
+    tkey <- image_transform_key(img_key, angle, colour, opacity)
+    transformed <- cache_get_transformed(tkey, use_cache)
+
+    if (is.null(transformed)) {
+      # apply the available user function
+      if (!is.null(image_fun) && is.function(image_fun)) {
+        transformed <- image_fun(cached_img)
+      } else {
+        transformed <- cached_img
+      }
+
+      # rotate
+      if (!is.null(angle) && !is.na(angle) && angle != 0) {
+        transformed <- magick::image_rotate(transformed, angle)
+      }
+
+      # color/opacity（execute for the color setting）
+      if (!is.null(colour) && !is.na(colour)) {
+        # ?? image_colorize(opacity=?, color=?)
+        # use the same API；opacity set as 0-100 percentage
+        transformed <- magick::image_colorize(transformed, opacity = opacity, color = colour)
+      }
+
+      cache_set_transformed(tkey, transformed, use_cache)
+    }
+
+    transformed
+  }, error = function(e) {
+    warning("Error in prepare_image: ", e$message)
+    NULL
+  })
+}
+
+#### caching mechanism for images end ####
 
 ##' @importFrom magick image_read
 ##' @importFrom magick image_read_svg
@@ -142,70 +304,40 @@ GeomImage <- ggproto("GeomImage", Geom,
 ##' @importFrom grDevices col2rgb
 ##' @importFrom methods is
 ##' @importFrom tools file_ext
-imageGrob <- function(x, y, size, img, colour, alpha, angle, adj, image_fun, hjust, by, asp=1, default.units='native'){
-    if (is.na(img)){
-        return(zeroGrob())
-    }
-    if (!is(img, "magick-image")) {
-        if (tools::file_ext(img) == "svg") {
-            img <- image_read_svg(img)
-        } else if (tools::file_ext(img) == "pdf") {
-            img <- image_read_pdf(img)
-        } else {
-            img <- image_read(img)
-        }
-        asp <- getAR2(img)/asp
-    }
+##' @importFrom yulab.utils get_cache_element update_cache_item rm_cache_item get_cache_item
+imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by, asp=1, default.units='native', use_cache=TRUE) {
+  if (is.na(img)) {
+    return(zeroGrob())
+  }
 
-    if (size == Inf) {
-        x <- 0.5
-        y <- 0.5
-        width <- 1
-        height <- 1
-    } else if (by == "width") {
-        width <- size * adj
-        height <- size / asp
-    } else {
-        width <- size * asp * adj
-        height <- size
-    }
+  # Use prepare_image for unified caching and transformation
+  cached_img <- prepare_image(img, colour, opacity, angle, image_fun, use_cache)
 
-    if (hjust == 0 || hjust == "left") {
-        x <- x + width/2
-    } else if (hjust == 1 || hjust == "right") {
-        x <- x - width/2
-    }
+  if (is.null(cached_img)) {
+    return(zeroGrob())
+  }
 
-    if (!is.null(image_fun)) {
-        img <- image_fun(img)
-    }    
+  asp <- getAR2(cached_img)/asp
 
-    if (angle != 0) {
-        img <- image_rotate(img, angle)
-    }
+  if (size == Inf) {
+    x <- 0.5; y <- 0.5; width <- 1; height <- 1
+  } else if (by == "width") {
+    width <- size * adj; height <- size / asp
+  } else {
+    width <- size * asp * adj; height <- size
+  }
 
-    if (!is.null(colour)){
-        img <- color_image(img, colour, alpha)
-    }
-    
-    if (size == Inf){
-       grob <- rasterGrob(x = x,
-                          y = y,
-                          image = img,
-                          default.units = default.units,
-                          height = height,
-                          width = width
-                          )
-    }else{
-       grob <- rasterGrob(
-                          x = x,
-                          y = y,
-                          image = img,
-                          default.units = default.units,
-                          height = height
-                       )        
-    }
-    return(grob)
+  if (hjust == 0 || hjust == "left") {
+    x <- x + width/2
+  } else if (hjust == 1 || hjust == "right") {
+    x <- x - width/2
+  }
+
+  grob <- rasterGrob(
+    x = x, y = y, image = cached_img, default.units = default.units,
+    height = height, width = if (size == Inf) width else NULL
+  )
+  grob
 }
 
 # ##' @importFrom grid makeContent
@@ -225,7 +357,7 @@ imageGrob <- function(x, y, size, img, colour, alpha, angle, adj, image_fun, hju
 #         w <- convertWidth(y$width, "cm", valueOnly = TRUE)
 #         ## Decide how the units should be equal
 #         ## y$width <- y$height <- unit(sqrt(h*w), "cm")
-# 
+#
 #         y$width <- unit(w, "cm")
 #         y$height <- unit(h, "cm")
 #         x$children[[i]] <- y
@@ -304,7 +436,6 @@ compute_just <- getFromNamespace("compute_just", "ggplot2")
 ## draw_key_image <- function(data, params, size) {
 ##     imageGrob(0.5, 0.5, image=data$image, size=data$size)
 ## }
-
 
 ## ##' @importFrom ggplot2 ggproto
 ## ##' @importFrom ggplot2 Geom
