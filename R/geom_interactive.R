@@ -58,6 +58,7 @@ GeomInteractiveImage <- ggproto(
                         nudge_x = 0, 
                         nudge_y = 0,
                         asp = 1,
+                        use_cache = TRUE,
                         .ipar = IPAR_NAMES
                         ){
     data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y) 
@@ -68,13 +69,14 @@ GeomInteractiveImage <- ggproto(
                    size = data$size[i],
                    img = data$image[i],
                    colour = data$colour[i],
-                   alpha = data$alpha[i],
+                   opacity = data$alpha[i],
                    angle = data$angle[i],
                    adj = adjs[i],
                    image_fun = image_fun,
                    hjust = hjust,
                    by = by,
-                   asp = asp
+                   asp = asp,
+                   use_cache = use_cache
          )
          gb <- add_interactive_attrs(gb, data[i,], ipar=.ipar)
          return(gb)
