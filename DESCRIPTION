@@ -12,6 +12,7 @@ Depends:
     R (>= 4.1.0),
     ggplot2
 Imports:
+    digest,
     ggfun,
     ggiraph,
     ggplotify,
@@ -26,8 +27,7 @@ Imports:
     tools,
     utils,
     withr,
-    yulab.utils (>= 0.1.3),
-    digest
+    yulab.utils (>= 0.1.3)
 Suggests:
     ape,
     ggtree,
