@@ -1,9 +1,10 @@
 Package: ggimage
 Title: Use Image in 'ggplot2'
-Version: 0.3.4
+Version: 0.3.4.001
 Authors@R: c(
        person("Guangchuang", "Yu",     email = "guangchuangyu@gmail.com", role = c("aut", "cre", "cph"), comment = c(ORCID = "0000-0002-6485-8781")),
-       person("Shuangbin", "Xu",       email = "xshuangbin@163.com",      role = "ctb", comment = c(ORCID="0000-0003-3513-5362"))
+       person("Shuangbin", "Xu",       email = "xshuangbin@163.com",      role = "ctb", comment = c(ORCID="0000-0003-3513-5362")),
+       person("Yonghe", "Xia",       email = "xiayh17@gmail.com",      role = "ctb")
        )
 Description: Supports image files and graphic objects to be visualized in
     'ggplot2' graphic system.

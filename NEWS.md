@@ -1,3 +1,7 @@
+## ggimage 0.3.4.001
+
++ cache image to speedup (2025-08-31, Sun, #59)
+
 ## ggimage 0.3.4
 
 + remove `geom_twitchemote()` (2025-08-24, Sun, #37)
