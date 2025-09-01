@@ -4,6 +4,23 @@
 #' See the documentation for those functions for more details.
 #' @param ... see also the parameters of `geom_image()` of `ggimage`
 #' @export
+#' @examples
+#' \dontrun{
+#' library("ggplot2")
+#' library("ggimage")
+#' library("ggiraph")
+#' set.seed(2017-02-21)
+#' d <- data.frame(x = rnorm(10),
+#'                 y = rnorm(10),
+#'                 image = sample(c("https://www.r-project.org/logo/Rlogo.png",
+#'                                 "https://jeroenooms.github.io/images/frink.png"),
+#'                               size=10, replace = TRUE)
+#'                )
+#' d$id <- sample(10)
+#' p <- ggplot(d, aes(x, y)) + 
+#'      geom_image_interactive(aes(image=image, tooltip = id, data_id = id))
+#' girafe(ggobj = p)
+#' }
 geom_image_interactive <- function(...){
   # rlang::check_installed(c('ggiraph'), "for `geom_image_interactive()`.")
   layer_interactive(geom_image, interactive_geom = GeomInteractiveImage,...)
@@ -61,6 +78,11 @@ GeomInteractiveImage <- ggproto(
                         use_cache = TRUE,
                         .ipar = IPAR_NAMES
                         ){
+    if (!.check_ipar_params(data)){
+        return(GeomImage$draw_panel(data, panel_params, coord, by, na.rm, 
+                                    .fun, image_fun, hjust, nudge_x, nudge_y, asp)
+        )
+    }
     data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y) 
     adjs <- GeomImage$build_adjust(data, panel_params, by)
     grobs <- lapply(seq_len(nrow(data)), function(i){
@@ -85,3 +107,6 @@ GeomInteractiveImage <- ggproto(
   }
 )
 
+.check_ipar_params <- function(x){
+  any(colnames(x) %in% IPAR_NAMES)
+}
