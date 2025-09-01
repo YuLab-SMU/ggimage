@@ -1,5 +1,6 @@
-## ggimage 0.3.4.001
+## ggimage 0.3.4.002
 
++ in interactive version, if `ipar` parameters not exist, use the static geom (2025-09-01, Mon, #60)
 + cache image to speedup (2025-08-31, Sun, #59)
 
 ## ggimage 0.3.4
