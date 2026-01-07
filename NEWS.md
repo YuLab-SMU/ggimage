@@ -1,5 +1,6 @@
-## ggimage 0.3.4.002
+## ggimage 0.3.5
 
++ use `magick::image_fx()` to contral transparency of images (2026-01-07, Thu, #61)
 + in interactive version, if `ipar` parameters not exist, use the static geom (2025-09-01, Mon, #60)
 + cache image to speedup (2025-08-31, Sun, #59)
 
