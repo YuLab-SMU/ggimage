@@ -3,12 +3,15 @@
 ##'
 ##' @title geom_phylopic
 ##' @inheritParams geom_pokemon
+##' @param image_fun a function to process magick-image objects, default is
+##' \code{function(x)magick::image_background(x, color = "none", flatten = FALSE)}.
 ##' @return ggplot2 layer
 ##' @export
 ##' @author Guangchuang Yu
 geom_phylopic <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
-                       na.rm=FALSE, by="width", ...) {
-    geom_image(mapping, data, inherit.aes=inherit.aes, na.rm=na.rm, ..., .fun = phylopic)
+                       na.rm=FALSE, by="width", 
+                       image_fun = function(x)magick::image_background(x, color = "none", flatten = FALSE), ...) {
+    geom_image(mapping, data, inherit.aes=inherit.aes, na.rm=na.rm, image_fun = image_fun, ..., .fun = phylopic)
 }
 
 ##' download phylopic images

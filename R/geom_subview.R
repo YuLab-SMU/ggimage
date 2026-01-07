@@ -34,7 +34,7 @@ geom_subview <- function(mapping = NULL, data = NULL, width=.1, height=.1, x = N
     }
 
     if (is.null(mapping)) {
-        mapping <- aes_(x = ~x, y = ~y)
+        mapping <- aes(x = x, y = y)
     }
     mapping <- as.list(mapping)
     if (is.null(mapping$x)) {

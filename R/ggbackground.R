@@ -10,7 +10,7 @@
 ##' @export
 ##' @author guangchuang yu
 ggbackground <- function(gg, background, ...) {
-    ggplot(data.frame(x = 0:1, y = 0:1), aes_(x = ~x, y = ~y)) +
+    ggplot(data.frame(x = 0:1, y = 0:1), aes(x = !!as.symbol("x"), y = !!as.symbol("y"))) +
         geom_image(image = background,size=Inf, ...) +
         geom_subview(subview = gg + theme_transparent(),
                      width=Inf, height=Inf, x=.5, y=.5) +

@@ -273,12 +273,15 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
       if (!is.null(angle) && !is.na(angle) && angle != 0) {
         transformed <- magick::image_rotate(transformed, angle)
       }
-
       # color/opacity（execute for the color setting）
       if (!is.null(colour) && !is.na(colour)) {
         # ?? image_colorize(opacity=?, color=?)
         # use the same API；opacity set as 0-100 percentage
-        transformed <- magick::image_colorize(transformed, opacity = opacity, color = colour)
+        transformed <- magick::image_colorize(transformed, opacity = 100, color = colour)
+        if (!is.null(opacity) && !is.na(opacity) && unique(opacity) != 1){
+            transformed <- magick::image_fx(transformed, expression = paste0("u.a * ", opacity), channel = "alpha")
+        }
+        #transformed <- color_image(transformed, colour, opacity)
       }
 
       cache_set_transformed(tkey, transformed, use_cache)

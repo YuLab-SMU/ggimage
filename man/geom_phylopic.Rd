@@ -10,6 +10,7 @@ geom_phylopic(
   inherit.aes = TRUE,
   na.rm = FALSE,
   by = "width",
+  image_fun = function(x) magick::image_background(x, color = "none", flatten = FALSE),
   ...
 )
 }
@@ -23,6 +24,9 @@ geom_phylopic(
 \item{na.rm}{whether remove NA values}
 
 \item{by}{one of 'width' or 'height' for specifying size}
+
+\item{image_fun}{a function to process magick-image objects, default is
+\code{function(x)magick::image_background(x, color = "none", flatten = FALSE)}.}
 
 \item{...}{additional parameter}
 }
