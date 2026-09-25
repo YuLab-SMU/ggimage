@@ -16,6 +16,18 @@
 ##' @param by one of 'width' or 'height'
 ##' @param nudge_x horizontal adjustment to nudge image
 ##' @param use_cache logical, whether to use image caching for better performance (default: TRUE)
+##' @param width,height Image width and height, in the same relative units as
+##'   the `size` aesthetic. They can be mapped per row via
+##'   `aes(width = ..., height = ...)` or set for the whole layer. They
+##'   override `size` (and therefore also `size = Inf` and `by`):
+##'   - only `width` is provided, the height is derived from the image ratio;
+##'   - only `height` is provided, the width is derived from the image ratio;
+##'   - both are provided, the image is drawn in exactly that box, which may
+##'     distort it when the ratio of the box differs from the ratio of the
+##'     image.
+##'
+##'   Values that are `NA`, not finite or not positive are ignored, and the
+##'   `size`/`by` behavior is used for the affected image.
 ##' @param ... additional parameters
 ##' @return geom layer
 ##' @importFrom ggplot2 layer
@@ -36,13 +48,31 @@
 ##'
 ##' # With caching disabled
 ##' ggplot(d, aes(x, y)) + geom_image(aes(image=image), use_cache=FALSE)
+##'
+##' # Per-row image size, via the `width` and `height` aesthetics
+##' ggplot(d, aes(x, y)) +
+##'     geom_image(aes(image=image, width=abs(x)/10, height=abs(y)/10))
+##'
+##' # Only one of them: the other dimension keeps the ratio of the image
+##' ggplot(d, aes(x, y)) + geom_image(aes(image=image, width=abs(x)/10))
 ##' }
 ##' @author Guangchuang Yu
 geom_image <- function(mapping=NULL, data=NULL, stat="identity",
                        position="identity", inherit.aes=TRUE,
-                       na.rm=FALSE, by="width", nudge_x = 0, use_cache=TRUE, ...) {
+                       na.rm=FALSE, by="width", nudge_x = 0, use_cache=TRUE,
+                       width=NULL, height=NULL, ...) {
 
     by <- match.arg(by, c("width", "height"))
+
+    params <- list(
+        na.rm = na.rm,
+        by = by,
+        nudge_x = nudge_x,
+        use_cache = use_cache,
+        ...
+    )
+    if (!is.null(width)) params$width <- width
+    if (!is.null(height)) params$height <- height
 
     layer(
         data=data,
@@ -52,13 +82,7 @@ geom_image <- function(mapping=NULL, data=NULL, stat="identity",
         position=position,
         show.legend=NA,
         inherit.aes=inherit.aes,
-        params = list(
-            na.rm = na.rm,
-            by = by,
-            nudge_x = nudge_x,
-            use_cache = use_cache,
-            ##angle = angle,
-            ...),
+        params = params,
         check.aes = FALSE
     )
 }
@@ -70,6 +94,15 @@ geom_image <- function(mapping=NULL, data=NULL, stat="identity",
 ##' @importFrom ggplot2 draw_key_blank
 ##' @importFrom grid gTree
 ##' @importFrom grid gList
+recycle_image_dimension <- function(value, n) {
+    if (is.null(value) || length(value) == 0L) {
+        return(rep(NA_real_, n))
+    }
+    value <- rep(as.numeric(value), length.out = n)
+    value[!is.finite(value) | value <= 0] <- NA_real_
+    value
+}
+
 GeomImage <- ggproto("GeomImage", Geom,
                      setup_data = function(data, params) {
                          if (is.null(data$subset))
@@ -78,14 +111,23 @@ GeomImage <- ggproto("GeomImage", Geom,
                      },
 
                      default_aes = aes(image=system.file("extdata/Rlogo.png", package="ggimage"),
-                                       size=0.05, colour = NULL, angle = 0, alpha=1),
+                                       size=0.05, width = NA_real_, height = NA_real_, colour = NULL, angle = 0, alpha=1),
 
                      draw_panel = function(data, panel_params, coord, by, na.rm=FALSE,
                                            .fun = NULL, image_fun = NULL,
-                                           hjust=0.5, nudge_x = 0, nudge_y = 0, asp=1, use_cache=TRUE) {
+                                           hjust=0.5, nudge_x = 0, nudge_y = 0, asp=1,
+                                           use_cache=TRUE, width = NULL, height = NULL) {
                          data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y)
 
                          adjs <- GeomImage$build_adjust(data, panel_params, by)
+                         widths <- recycle_image_dimension(
+                             if ("width" %in% names(data)) data$width else width,
+                             nrow(data)
+                         )
+                         heights <- recycle_image_dimension(
+                             if ("height" %in% names(data)) data$height else height,
+                             nrow(data)
+                         )
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
                               imageGrob(x = data$x[i],
@@ -100,7 +142,9 @@ GeomImage <- ggproto("GeomImage", Geom,
                                         hjust = hjust,
                                         by = by,
                                         asp = asp,
-                                        use_cache = use_cache
+                                        use_cache = use_cache,
+                                        width = widths[i],
+                                        height = heights[i]
                               )
                              })
                          ggname("geom_image", gTree(children = do.call(gList, grobs)))
@@ -320,7 +364,9 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
 ##' @importFrom methods is
 ##' @importFrom tools file_ext
 ##' @importFrom yulab.utils get_cache_element update_cache_item rm_cache_item get_cache_item
-imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by, asp=1, default.units='native', use_cache=TRUE) {
+imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by,
+                     asp=1, default.units='native', use_cache=TRUE,
+                     width = NA_real_, height = NA_real_) {
   if (is.na(img)) {
     return(zeroGrob())
   }
@@ -334,7 +380,23 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
 
   asp <- getAR2(cached_img)/asp
 
-  if (size == Inf) {
+  explicit_width <- length(width) == 1L && is.finite(width) && width > 0
+  explicit_height <- length(height) == 1L && is.finite(height) && height > 0
+
+  if (explicit_width || explicit_height) {
+    if (explicit_width && explicit_height) {
+      grob_width <- width
+      grob_height <- height
+    } else if (explicit_width) {
+      grob_width <- width
+      grob_height <- width / asp
+    } else {
+      grob_width <- height * asp
+      grob_height <- height
+    }
+    width <- grob_width
+    height <- grob_height
+  } else if (size == Inf) {
     x <- 0.5; y <- 0.5; width <- 1; height <- 1
   } else if (by == "width") {
     width <- size * adj; height <- size / asp
@@ -342,6 +404,7 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
     width <- size * asp * adj; height <- size
   }
 
+  explicit_dimensions <- explicit_width || explicit_height
   if (hjust == 0 || hjust == "left") {
     x <- x + width/2
   } else if (hjust == 1 || hjust == "right") {
@@ -350,7 +413,7 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
 
   grob <- rasterGrob(
     x = x, y = y, image = cached_img, default.units = default.units,
-    height = height, width = if (size == Inf) width else NULL
+    height = height, width = if (explicit_dimensions || size == Inf) width else NULL
   )
   grob
 }
