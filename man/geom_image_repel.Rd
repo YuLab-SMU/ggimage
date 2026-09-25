@@ -14,6 +14,7 @@ geom_image_repel(
   by = "width",
   nudge_x = 0,
   nudge_y = 0,
+  use_cache = TRUE,
   width = NULL,
   height = NULL,
   max.iter = 100,
@@ -41,6 +42,8 @@ geom_image_repel(
 \item{nudge_x}{horizontal adjustment to nudge image}
 
 \item{nudge_y}{vertical adjustment to nudge image}
+
+\item{use_cache}{logical, whether to use image caching for better performance}
 
 \item{width, height}{Image width and height in native panel units, following
 \code{geom_image()} behavior. If only one is supplied, the other is derived

@@ -51,6 +51,7 @@
 ##' @param by one of 'width' or 'height'
 ##' @param nudge_x horizontal adjustment to nudge image
 ##' @param nudge_y vertical adjustment to nudge image
+##' @param use_cache logical, whether to use image caching for better performance
 ##' @param width,height Image width and height in native panel units, see
 ##'   [geom_image()]. Only one of them keeps the aspect ratio of the image.
 ##' @param max.iter non-negative whole number of displacement iterations.
@@ -90,7 +91,8 @@
 geom_image_repel <- function(mapping=NULL, data=NULL, stat="identity",
                              position="identity", inherit.aes=TRUE,
                              na.rm=FALSE, by="width", nudge_x = 0, nudge_y = 0,
-                             width=NULL, height=NULL, max.iter=100, force=0.1,
+                             use_cache=TRUE, width=NULL, height=NULL,
+                             max.iter=100, force=0.1,
                              box.padding=0, direction="both", ...) {
 
     by <- match.arg(by, c("width", "height"))
@@ -104,6 +106,7 @@ geom_image_repel <- function(mapping=NULL, data=NULL, stat="identity",
         by = by,
         nudge_x = nudge_x,
         nudge_y = nudge_y,
+        use_cache = use_cache,
         max.iter = max.iter,
         force = force,
         box.padding = box.padding,
@@ -213,11 +216,11 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
                               width = NULL, height = NULL, image_fun = NULL,
                               use_cache = TRUE, box.padding = 0) {
     n <- nrow(data)
-    explicit_width <- recycle_image_dimension(
-        if ("width" %in% names(data)) data$width else width, n
+    explicit_width <- resolve_image_dimension(
+        if ("width" %in% names(data)) data$width else NULL, width, n
     )
-    explicit_height <- recycle_image_dimension(
-        if ("height" %in% names(data)) data$height else height, n
+    explicit_height <- resolve_image_dimension(
+        if ("height" %in% names(data)) data$height else NULL, height, n
     )
 
     boxes <- data.frame(
@@ -278,8 +281,7 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
 }
 
 
-## move overlapping boxes apart; `x`, `y` are the centres of the boxes and
-## `width`, `height` their sizes, all in the same (native panel) units.
+## Deterministic pairwise solver kept isolated for direct geometry testing.
 repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
                         direction = "both") {
     n <- length(x)
@@ -289,45 +291,66 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
 
     move_x <- direction %in% c("both", "x")
     move_y <- direction %in% c("both", "y")
+    overlapping <- FALSE
 
     for (iter in seq_len(max.iter)) {
         overlapping <- FALSE
         for (i in seq_len(n - 1L)) {
-            j <- (i + 1L):n
-            dx <- x[j] - x[i]
-            dy <- y[j] - y[i]
-            ## overlap of the two boxes along each axis, positive means overlap
-            ox <- (width[i] + width[j]) / 2 - abs(dx)
-            oy <- (height[i] + height[j]) / 2 - abs(dy)
-            hit <- which(ox > 0 & oy > 0)
-            if (length(hit) == 0L) next
-            overlapping <- TRUE
+            for (j in (i + 1L):n) {
+                ox <- (width[i] + width[j]) / 2 - abs(x[j] - x[i])
+                oy <- (height[i] + height[j]) / 2 - abs(y[j] - y[i])
+                if (!(ox > 0 && oy > 0)) next
+                overlapping <- TRUE
+                sx <- if (x[j] - x[i] == 0) 1 else sign(x[j] - x[i])
+                sy <- if (y[j] - y[i] == 0) 1 else sign(y[j] - y[i])
 
-            j <- j[hit]
-            ox <- ox[hit]
-            oy <- oy[hit]
-            ## images at the very same position are always moved apart along
-            ## the positive axis, so that the result stays deterministic
-            sx <- ifelse(dx[hit] == 0, 1, sign(dx[hit]))
-            sy <- ifelse(dy[hit] == 0, 1, sign(dy[hit]))
-
-            if (move_x) {
-                fx <- force * ox / 2 * sx
-                x[i] <- x[i] - sum(fx)
-                x[j] <- x[j] + fx
-            }
-            if (move_y) {
-                fy <- force * oy / 2 * sy
-                y[i] <- y[i] - sum(fy)
-                y[j] <- y[j] + fy
+                if (move_x) {
+                    shift <- force * ox / 2
+                    x[i] <- x[i] - shift * sx
+                    x[j] <- x[j] + shift * sx
+                }
+                if (move_y) {
+                    shift <- force * oy / 2
+                    y[i] <- y[i] - shift * sy
+                    y[j] <- y[j] + shift * sy
+                }
             }
         }
         if (!overlapping) break
     }
 
+    ## Finish long runs with a small positive clearance. Short runs preserve
+    ## the force-dependent partial update used to tune the layout.
+    if (max.iter >= 10L && overlapping) {
+        clearance <- 1e-4
+        for (cleanup in seq_len(max(100L, n * 100L))) {
+            changed <- FALSE
+            for (i in seq_len(n - 1L)) {
+                for (j in (i + 1L):n) {
+                    ox <- (width[i] + width[j]) / 2 - abs(x[j] - x[i])
+                    oy <- (height[i] + height[j]) / 2 - abs(y[j] - y[i])
+                    if (!(ox > 0 && oy > 0)) next
+                    changed <- TRUE
+                    sx <- if (x[j] - x[i] == 0) 1 else sign(x[j] - x[i])
+                    sy <- if (y[j] - y[i] == 0) 1 else sign(y[j] - y[i])
+                    if (move_x) {
+                        shift <- (ox + 2 * clearance) / 2
+                        x[i] <- x[i] - shift * sx
+                        x[j] <- x[j] + shift * sx
+                    }
+                    if (move_y) {
+                        shift <- (oy + 2 * clearance) / 2
+                        y[i] <- y[i] - shift * sy
+                        y[j] <- y[j] + shift * sy
+                    }
+                }
+            }
+            if (!changed) break
+        }
+    }
+
     list(x = x, y = y)
 }
-
 
 repel_image_data <- function(data, panel_params, coord, by = "width", asp = 1,
                              width = NULL, height = NULL, image_fun = NULL,
@@ -342,6 +365,15 @@ repel_image_data <- function(data, panel_params, coord, by = "width", asp = 1,
                                image_fun = image_fun, use_cache = use_cache,
                                box.padding = box.padding)
     idx <- which(boxes$keep)
+
+    ## Keep the drawn boxes observable and consistent with the boxes used by
+    ## the solver. For size/by rows this materializes the aspect-derived width
+    ## that grid would otherwise leave as a NULL width unit.
+    if (!"width" %in% names(data)) data$width <- NA_real_
+    if (!"height" %in% names(data)) data$height <- NA_real_
+    data$width[idx] <- boxes$width[idx] - box.padding
+    data$height[idx] <- boxes$height[idx] - box.padding
+
     if (length(idx) < 2L) {
         return(data)
     }

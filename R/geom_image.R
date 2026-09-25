@@ -105,6 +105,15 @@ recycle_image_dimension <- function(value, n) {
     value
 }
 
+resolve_image_dimension <- function(data_value, fallback, n) {
+    value <- recycle_image_dimension(data_value, n)
+    if (!is.null(fallback) && length(fallback) > 0L) {
+        fallback <- recycle_image_dimension(fallback, n)
+        value[is.na(value)] <- fallback[is.na(value)]
+    }
+    value
+}
+
 GeomImage <- ggproto("GeomImage", Geom,
                      setup_data = function(data, params) {
                          if (is.null(data$subset))
@@ -132,12 +141,14 @@ GeomImage <- ggproto("GeomImage", Geom,
                                            hjust=0.5, asp=1, use_cache=TRUE,
                                            width = NULL, height = NULL) {
                          adjs <- GeomImage$build_adjust(data, panel_params, by)
-                         widths <- recycle_image_dimension(
-                             if ("width" %in% names(data)) data$width else width,
+                         widths <- resolve_image_dimension(
+                             if ("width" %in% names(data)) data$width else NULL,
+                             width,
                              nrow(data)
                          )
-                         heights <- recycle_image_dimension(
-                             if ("height" %in% names(data)) data$height else height,
+                         heights <- resolve_image_dimension(
+                             if ("height" %in% names(data)) data$height else NULL,
+                             height,
                              nrow(data)
                          )
 
