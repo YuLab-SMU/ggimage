@@ -13,6 +13,7 @@ geom_image(
   na.rm = FALSE,
   by = "width",
   nudge_x = 0,
+  nudge_y = 0,
   use_cache = TRUE,
   width = NULL,
   height = NULL,
@@ -35,6 +36,8 @@ geom_image(
 \item{by}{one of 'width' or 'height'}
 
 \item{nudge_x}{horizontal adjustment to nudge image}
+
+\item{nudge_y}{vertical adjustment to nudge image}
 
 \item{use_cache}{logical, whether to use image caching for better performance (default: TRUE)}
 
