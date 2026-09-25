@@ -29,9 +29,12 @@ geom_phylopic <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
 download_phylopic <- function(id, destdir = ".", ...) {
     url <- phylopic(id)
     n <- basename(url)
-    destfile <- paste0(destdir, '/', id, n)
+    destfile <- rep(NA_character_, length(url))
+    names(destfile) <- names(url)
 
-    for (i in seq_along(url)) {
+    valid <- !is.na(url) & nzchar(url)
+    destfile[valid] <- paste0(destdir, '/', id[valid], n[valid])
+    for (i in which(valid)) {
         utils::download.file(url[i], destfile[i], ...)
     }
     invisible(destfile)
@@ -59,38 +62,50 @@ phylopic <- function(id) {
     }
 
     id <- .autocomplete_uid(x = id)
-    
-    url <- paste0(basepath, id, "/vector.svg")
-    if (is.null(basepath)){
-        url <- check_url(url)
-    }
+
+    ## Keep unresolved IDs as NA rather than constructing an unusable URL.
+    ## GeomImage already treats NA images as zero-width grobs.
+    url <- rep(NA_character_, length(id))
+    names(url) <- names(id)
+    valid <- !is.na(id) & nzchar(id)
+    url[valid] <- paste0(basepath, id[valid], "/vector.svg")
 
     return(url)
-    
+
 }
 
 # Universally unique identifier (uuid) of phylopic database 
 # is a 128-bit number. It has 32 alphanumeric characters in the
 # form of 8-4-4-4-12.
 .autocomplete_uid <- function(x){
-    x <- unlist(
-        lapply(x, function(i){
-        x1 <- unlist(strsplit(i, split='-'))
-        flag1 <- length(x1) == 5
-        if (!flag1){
-            i <- phylopic_uid(name = i)$uid
-        }else{
-            flag2 <- all(nchar(x1) == c(8, 4, 4, 4, 12))
-            if (!flag2){
-                i <- phylopic_uid(name = i)$uid
-            }
+    x <- as.character(x)
+    input_names <- names(x)
+    result <- vapply(seq_along(x), function(index) {
+        i <- x[[index]]
+        if (is.na(i) || !nzchar(trimws(i))) {
+            return(NA_character_)
         }
-        return(i)
-      }
-    )
-    )
-    return(x)
-    
+
+        x1 <- strsplit(i, split='-', fixed = TRUE)[[1]]
+        is_uid <- length(x1) == 5 &&
+            identical(as.integer(nchar(x1)), c(8L, 4L, 4L, 4L, 12L))
+        if (is_uid) {
+            return(i)
+        }
+
+        ## A name that cannot be resolved is represented by NA.  In
+        ## particular, do not let one missing name abort a batch lookup.
+        uid <- tryCatch(phylopic_uid(name = i)$uid,
+                        error = function(e) NA_character_)
+        if (length(uid) == 0L || is.na(uid[[1]]) ||
+            !nzchar(as.character(uid[[1]]))) {
+            NA_character_
+        } else {
+            as.character(uid[[1]])
+        }
+    }, character(1))
+    names(result) <- input_names
+    result
 }
 
 
@@ -168,65 +183,113 @@ autocomplete_name <- function(name, ...){
 ##' @export
 ##' @author Guangchuang Yu
 phylopic_uid <- function(name, seed=123) {
-    ## if (length(name) == 1) {
-    ##     res <- phylopic_uid_item(name)
-    ## } else {
-    ##     res <- lapply(name, phylopic_uid_item)
-        
-    ##     names(res) <- name
-    ##     return(res)
-    ## }
+    ## Missing names and incomplete API responses are returned as NA.  This
+    ## preserves the input length and lets callers process a batch without
+    ## losing the names that did resolve.
+    name_input <- name
+    name <- as.character(name)
+    uid <- vapply(seq_along(name), function(index) {
+        x <- name[[index]]
+        value <- tryCatch(phylopic_uid_item(x, seed = seed),
+                          error = function(e) NA_character_)
+        if (length(value) != 1L || is.na(value) || !nzchar(value)) {
+            NA_character_
+        } else {
+            as.character(value)
+        }
+    }, character(1))
+    return(data.frame(name = name_input, uid = uid, stringsAsFactors = FALSE))
+}
 
-    res <- data.frame(name = name,
-                      uid = vapply(name, phylopic_uid_item, seed=seed, character(1)))
-    return(res)
+## Keep JSON parsing behind a small helper so malformed responses have one
+## well-defined outcome and the parsing policy can be tested without a network.
+.phylopic_from_json <- function(url) {
+    suppressWarnings(tryCatch(jsonlite::fromJSON(url),
+                               error = function(e) NULL))
+}
+
+.phylopic_build <- function(res) {
+    if (!is.list(res) || is.null(res$build) || length(res$build) == 0L) {
+        return(NULL)
+    }
+
+    build <- res$build[[1L]]
+    if (length(build) != 1L || is.na(build) || !nzchar(as.character(build))) {
+        return(NULL)
+    }
+    as.character(build)
+}
+
+.phylopic_vector_hrefs <- function(x) {
+    if (is.null(x)) {
+        return(character())
+    }
+    if (is.data.frame(x)) {
+        x <- as.list(x)
+    }
+    if (!is.list(x)) {
+        return(character())
+    }
+
+    ## The default jsonlite simplification returns data frames, while a
+    ## mocked/unsimplified response can be a list of item objects.  Walking
+    ## both shapes keeps missing optional fields harmless.
+    if (!is.null(x$href) && is.character(x$href)) {
+        return(unname(x$href))
+    }
+    if (!is.null(x$vectorFile)) {
+        return(.phylopic_vector_hrefs(x$vectorFile))
+    }
+    if (!is.null(x$`_links`)) {
+        return(.phylopic_vector_hrefs(x$`_links`))
+    }
+    unlist(lapply(x, .phylopic_vector_hrefs), use.names = FALSE)
+}
+
+.phylopic_extract_uids <- function(res) {
+    if (!is.list(res) || is.null(res$`_embedded`) ||
+        !is.list(res$`_embedded`) || is.null(res$`_embedded`$items)) {
+        return(character())
+    }
+
+    href <- .phylopic_vector_hrefs(res$`_embedded`$items)
+    href <- href[!is.na(href) & nzchar(href)]
+    if (length(href) == 0L) {
+        return(character())
+    }
+
+    pattern <- "^.*\\/images\\/([^\\/]+)\\/vector\\.svg(?:\\?.*)?$"
+    is_vector <- grepl(pattern, href)
+    matches <- regmatches(href[is_vector], regexec(pattern, href[is_vector]))
+    uid <- vapply(matches, function(x) x[[2L]], character(1))
+    uid[!is.na(uid) & nzchar(uid)]
 }
 
 ##' @importFrom withr with_seed
 phylopic_uid_item <- function(name, seed = 123, ...) {
-    #x <- gsub("[^a-zA-Z]+", "+", name)
-    #url <- paste0("http://phylopic.org/api/a/name/search?text=",
-    #              x, "&options=scientific+json")
-    #res <- jsonlite::fromJSON(url)$result[[1]]
-    
-    baseurl <- 'https://api.phylopic.org/images?'
+    if (length(name) != 1L || is.na(name) || !nzchar(trimws(name))) {
+        return(NA_character_)
+    }
 
+    baseurl <- 'https://api.phylopic.org/images?'
     nm <- gsub("[^a-zA-Z]+", "%20", tolower(name))
 
     url1 <- paste0(baseurl, "filter_name=", nm)
-    
-    res <- suppressWarnings(tryCatch(jsonlite::fromJSON(url1), error = function(e)return(NULL)))
-
-    url2 <- paste0(baseurl, "embed_items=true&page=0&filter_name=", nm, "&build=", res$build)
-
-
-    res <- suppressWarnings(tryCatch(jsonlite::fromJSON(url2),
-                    error = function(e) return(NULL)))
-    if ("errors" %in% names(res) || is.null(res)){
-        stop(paste0("Image resource of Phylopic database is not available for ", name, ". \n",
-                    "Ensure provided name is a valid taxonomic name or ",
-                    "try a species/genus resolution name. \n",
-                    'Or using the autocomplete_name function to get the suggestions for the full name.'
-                    )
-        )
-    }else{
-        href <- res$`_embedded`$items$`_links`$vectorFile$href
-        uids <- sub("/vector.svg", "", sub('+.*images/', "", href))
+    res1 <- .phylopic_from_json(url1)
+    build <- .phylopic_build(res1)
+    if (is.null(build)) {
+        return(NA_character_)
     }
-    
-    return(withr::with_seed(seed, sample(uids, 1)))
-    #for (id in res$uid) {
-    #    uid <- phylopic_valid_id(id)
-    #    if (!is.na(uid))
-    #        break
-    #}
-    #return(uid)
 
-    ## uid <- phylopic_valid_id(res$uid)
-    ## i <- which(!is.na(uid))
-    ## res <- res[i, , drop = FALSE]
-    ## res$uid <- uid[i]
-    ## return(res)
+    url2 <- paste0(baseurl, "embed_items=true&page=0&filter_name=", nm,
+                   "&build=", build)
+    res2 <- .phylopic_from_json(url2)
+    uids <- .phylopic_extract_uids(res2)
+    if (length(uids) == 0L) {
+        return(NA_character_)
+    }
+
+    withr::with_seed(seed, sample(uids, 1))
 }
 
 

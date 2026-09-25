@@ -34,7 +34,7 @@ Suggests:
     gridGraphics,
     httr,
     rsvg,
-    testthat
+    testthat (>= 3.0.0)
 ByteCompile: true
 License: Artistic-2.0
 URL: https://github.com/YuLab-SMU/ggimage
