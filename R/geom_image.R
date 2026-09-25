@@ -165,11 +165,13 @@ image_cache_key <- function(img) {
 }
 
 # generate transform key based on base_key and transform parameters
-image_transform_key <- function(base_key, angle, colour, opacity) {
+image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NULL) {
+  image_fun_key <- if (is.null(image_fun)) "" else digest(image_fun)
   paste(base_key,
         if (is.null(angle) || is.na(angle)) 0 else angle,
         if (is.null(colour) || is.na(colour)) "" else as.character(colour),
         if (is.null(opacity) || is.na(opacity)) "" else as.character(opacity),
+        image_fun_key,
         sep = "|")
 }
 
@@ -219,6 +221,20 @@ get_image_transform_cache_size <- function() {
   length(ci)
 }
 
+# Apply opacity independently of colour so alpha-only mappings work.
+apply_image_opacity <- function(img, opacity) {
+  if (is.null(opacity) || is.na(opacity) || opacity == 1) {
+    return(img)
+  }
+
+  # Make the alpha channel explicit before image_fx. Without a matte channel,
+  # ImageMagick leaves opaque images unchanged when alpha is modified.
+  img <- magick::image_background(img, color = "none")
+  magick::image_fx(img,
+                   expression = paste0("u.a * ", opacity),
+                   channel = "alpha")
+}
+
 prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE) {
   tryCatch({
     if (is_invalid(img)) {
@@ -258,7 +274,7 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
     }
 
     # —— secondary cache（optional）：cache for angle/colour/opacity image —— #
-    tkey <- image_transform_key(img_key, angle, colour, opacity)
+    tkey <- image_transform_key(img_key, angle, colour, opacity, image_fun)
     transformed <- cache_get_transformed(tkey, use_cache)
 
     if (is.null(transformed)) {
@@ -273,16 +289,12 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
       if (!is.null(angle) && !is.na(angle) && angle != 0) {
         transformed <- magick::image_rotate(transformed, angle)
       }
-      # color/opacity（execute for the color setting）
+      # Colorize independently from opacity; alpha is applied below for both
+      # colour and colour = NULL cases.
       if (!is.null(colour) && !is.na(colour)) {
-        # ?? image_colorize(opacity=?, color=?)
-        # use the same API；opacity set as 0-100 percentage
         transformed <- magick::image_colorize(transformed, opacity = 100, color = colour)
-        if (!is.null(opacity) && !is.na(opacity) && unique(opacity) != 1){
-            transformed <- magick::image_fx(transformed, expression = paste0("u.a * ", opacity), channel = "alpha")
-        }
-        #transformed <- color_image(transformed, colour, opacity)
       }
+      transformed <- apply_image_opacity(transformed, opacity)
 
       cache_set_transformed(tkey, transformed, use_cache)
     }
