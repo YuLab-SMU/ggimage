@@ -10,9 +10,22 @@
 ##' @export
 ##' @author guangchuang yu
 ggbackground <- function(gg, background, ...) {
-    ggplot(data.frame(x = 0:1, y = 0:1), aes(x = !!as.symbol("x"), y = !!as.symbol("y"))) +
-        geom_image(image = background,size=Inf, ...) +
-        geom_subview(subview = gg + theme_transparent(),
-                     width=Inf, height=Inf, x=.5, y=.5) +
-        theme_nothing()
+    ## Add an isolated image layer as the first layer instead of wrapping `gg`
+    ## in an annotation_custom grob.  Wrapping replaces the plot's coordinate
+    ## system with the helper plot's 0:1 ranges, so annotations added after
+    ## ggbackground() can be transformed to the wrong position (or clipped).
+    ##
+    ## The layer must not inherit the plot's global aesthetics: a mapping such
+    ## as colour/alpha would otherwise be applied to the background once per
+    ## observation and could tint or duplicate the image.
+    background_layer <- geom_image(
+        data = data.frame(x = 0.5, y = 0.5),
+        mapping = ggplot2::aes(x = x, y = y),
+        inherit.aes = FALSE,
+        image = background,
+        size = Inf,
+        ...
+    )
+    gg$layers <- c(list(background_layer), gg$layers)
+    gg
 }
