@@ -15,6 +15,7 @@
 ##' @param na.rm logical, whether remove NA values
 ##' @param by one of 'width' or 'height'
 ##' @param nudge_x horizontal adjustment to nudge image
+##' @param nudge_y vertical adjustment to nudge image
 ##' @param use_cache logical, whether to use image caching for better performance (default: TRUE)
 ##' @param width,height Image width and height in native panel units, matching the
 ##'   plotting units used by the `size`/`by` behavior. They can be mapped per
@@ -60,7 +61,7 @@
 ##' @author Guangchuang Yu
 geom_image <- function(mapping=NULL, data=NULL, stat="identity",
                        position="identity", inherit.aes=TRUE,
-                       na.rm=FALSE, by="width", nudge_x = 0, use_cache=TRUE,
+                       na.rm=FALSE, by="width", nudge_x = 0, nudge_y = 0, use_cache=TRUE,
                        width=NULL, height=NULL, ...) {
 
     by <- match.arg(by, c("width", "height"))
@@ -69,6 +70,7 @@ geom_image <- function(mapping=NULL, data=NULL, stat="identity",
         na.rm = na.rm,
         by = by,
         nudge_x = nudge_x,
+        nudge_y = nudge_y,
         use_cache = use_cache,
         ...
     )
