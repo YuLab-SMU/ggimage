@@ -18,5 +18,14 @@ draw_key_image(data, params, size)
 A grid grob
 }
 \description{
-key drawing function
+\code{draw_key_image()} draws the legend key of image layers (i.e. \code{geom_image()}).
+The type of the key is determined by the global option \code{ggimage.keytype},
+which supports \code{"point"} (the default when the option is unset), \code{"rect"},
+\code{"image"} and \code{"blank"} (no key, the behaviour of image layers before the
+key was implemented). An unsupported value falls back to \code{"point"} with a
+warning.
+
+Image layers have no default colour, so \code{colour} can be missing (i.e. \code{NULL})
+or \code{NA} in \code{data}, for instance when only \code{alpha} is mapped. Such keys fall
+back to \code{"black"}, so that \code{alpha} stays visible in the legend.
 }

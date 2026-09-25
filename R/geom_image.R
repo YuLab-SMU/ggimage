@@ -67,7 +67,6 @@ geom_image <- function(mapping=NULL, data=NULL, stat="identity",
 ##' @importFrom ggplot2 ggproto
 ##' @importFrom ggplot2 Geom
 ##' @importFrom ggplot2 aes
-##' @importFrom ggplot2 draw_key_blank
 ##' @importFrom grid gTree
 ##' @importFrom grid gList
 GeomImage <- ggproto("GeomImage", Geom,
@@ -134,7 +133,10 @@ GeomImage <- ggproto("GeomImage", Geom,
                      },
                      non_missing_aes = c("size", "image"),
                      required_aes = c("x", "y"),
-                     draw_key = draw_key_blank ## draw_key_blank ## need to write the `draw_key_image` function.
+                     ## `draw_key_image()` respects the `ggimage.keytype` option,
+                     ## use `options(ggimage.keytype = "blank")` to restore the
+                     ## key-less behaviour of previous versions.
+                     draw_key = draw_key_image
                      )
 
 #### caching mechanism for images ####
