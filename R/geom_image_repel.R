@@ -1,0 +1,356 @@
+##' geom layer for visualizing image files with basic overlap avoidance
+##'
+##' `geom_image_repel()` draws images like [geom_image()], but moves images
+##' that overlap each other apart before drawing them. The displacement is
+##' computed offline (no network, no rendering, no `ggrepel` dependency) from
+##' the bounding boxes of the images, so the result is deterministic: the same
+##' plot always produces the same layout.
+##'
+##' @details
+##' The algorithm works on the *centres* of the images, after they have been
+##' nudged (`nudge_x`/`nudge_y`) and transformed by the coordinate system
+##' (this is the space in which `width`/`height` are expressed, i.e. fractions
+##' of the panel):
+##' \enumerate{
+##'   \item each image gets an axis aligned box of size
+##'         `width + box.padding` by `height + box.padding`;
+##'   \item for every pair of boxes that overlap on **both** axes, the two
+##'         images are pushed apart along the allowed `direction`, by
+##'         `force * overlap / 2` each, away from each other;
+##'   \item step 2 is repeated at most `max.iter` times, stopping early once no
+##'         pair overlaps. The residual overlap after `max.iter` iterations is
+##'         about `(1 - force)^max.iter` of the initial one, so the default
+##'         (`force = 0.1`, `max.iter = 100`) leaves essentially no overlap.
+##' }
+##' Pairs of exactly coincident images are separated along the positive axis,
+##' which keeps the result reproducible. The cost is `O(n^2 * max.iter)` for
+##' `n` images; the layer is meant for the small numbers of images that are
+##' typical for image based annotations.
+##'
+##' Images are pushed away from each other only, they are **not** kept inside
+##' the panel, and images are never re-ordered or removed. Images with
+##' `size = Inf` (e.g. the background image added by [geom_bgimage()]) and
+##' images that cannot be loaded are ignored by the repulsion: they keep their
+##' original position and do not push the other images around.
+##'
+##' The width of an image that is sized through `size`/`by` (instead of an
+##' explicit `width`) is derived by `grid` from its height and from the
+##' physical aspect of the panel. `geom_image_repel()` uses the aspect
+##' reported by the coordinate system (`coord_fixed()`, exact) and assumes a
+##' square panel otherwise, which over-estimates the width of a panel that is
+##' wider than it is high. Pass explicit `width`/`height` when the exact box
+##' matters.
+##'
+##' @title geom_image_repel
+##' @param mapping aes mapping
+##' @param data data
+##' @param stat stat
+##' @param position position
+##' @param inherit.aes logical, whether inherit aes from ggplot()
+##' @param na.rm logical, whether remove NA values
+##' @param by one of 'width' or 'height'
+##' @param nudge_x horizontal adjustment to nudge image
+##' @param nudge_y vertical adjustment to nudge image
+##' @param width,height Image width and height in native panel units, see
+##'   [geom_image()]. Only one of them keeps the aspect ratio of the image.
+##' @param max.iter non-negative whole number of displacement iterations.
+##'   `max.iter = 0` keeps the original coordinates (and `force = 0` does the
+##'   same).
+##' @param force non-negative number, the fraction of the current overlap that
+##'   is resolved in one iteration (each image of an overlapping pair moves by
+##'   `force * overlap / 2`). Larger values converge faster but produce bigger
+##'   jumps.
+##' @param box.padding non-negative number, extra space added around every
+##'   image box, in the same units as `width`/`height`. Repelled images are
+##'   kept at least `box.padding` apart.
+##' @param direction one of 'both', 'x' or 'y', the axis (or axes) along which
+##'   images are allowed to move. Overlap is always detected on both axes;
+##'   `direction` only restricts the displacement, so `direction = "x"` slides
+##'   overlapping images horizontally until they no longer overlap.
+##' @param ... additional parameters
+##' @return geom layer
+##' @importFrom ggplot2 layer
+##' @export
+##' @examples
+##' library("ggplot2")
+##' library("ggimage")
+##' d <- data.frame(x = c(0.5, 0.52, 0.51),
+##'                 y = c(0.5, 0.51, 0.49),
+##'                 image = system.file("extdata/Rlogo.png", package = "ggimage"))
+##' ## overlapping images are pushed apart
+##' ggplot(d, aes(x, y, image = image)) +
+##'     geom_image_repel(width = 0.1, box.padding = 0.01)
+##' ## max.iter = 0 keeps the original coordinates
+##' ggplot(d, aes(x, y, image = image)) +
+##'     geom_image_repel(width = 0.1, max.iter = 0)
+##' ## only move them apart horizontally
+##' ggplot(d, aes(x, y, image = image)) +
+##'     geom_image_repel(width = 0.1, direction = "x")
+##' @author Guangchuang Yu
+geom_image_repel <- function(mapping=NULL, data=NULL, stat="identity",
+                             position="identity", inherit.aes=TRUE,
+                             na.rm=FALSE, by="width", nudge_x = 0, nudge_y = 0,
+                             width=NULL, height=NULL, max.iter=100, force=0.1,
+                             box.padding=0, direction="both", ...) {
+
+    by <- match.arg(by, c("width", "height"))
+    max.iter <- check_repel_count(max.iter, "max.iter")
+    force <- check_repel_number(force, "force")
+    box.padding <- check_repel_number(box.padding, "box.padding")
+    direction <- check_repel_direction(direction)
+
+    params <- list(
+        na.rm = na.rm,
+        by = by,
+        nudge_x = nudge_x,
+        nudge_y = nudge_y,
+        max.iter = max.iter,
+        force = force,
+        box.padding = box.padding,
+        direction = direction,
+        ...
+    )
+    if (!is.null(width)) params$width <- width
+    if (!is.null(height)) params$height <- height
+
+    layer(
+        data=data,
+        mapping=mapping,
+        geom=GeomImageRepel,
+        stat=stat,
+        position=position,
+        show.legend=NA,
+        inherit.aes=inherit.aes,
+        params = params,
+        check.aes = FALSE
+    )
+}
+
+
+GeomImageRepel <- ggproto("GeomImageRepel", GeomImage,
+                          draw_panel = function(data, panel_params, coord, by,
+                                                na.rm=FALSE, .fun = NULL,
+                                                image_fun = NULL,
+                                                hjust=0.5, nudge_x = 0, nudge_y = 0,
+                                                asp=1, use_cache=TRUE,
+                                                width = NULL, height = NULL,
+                                                max.iter=100, force=0.1,
+                                                box.padding=0, direction="both") {
+                              max.iter <- check_repel_count(max.iter, "max.iter")
+                              force <- check_repel_number(force, "force")
+                              box.padding <- check_repel_number(box.padding, "box.padding")
+                              direction <- check_repel_direction(direction)
+
+                              data <- GeomImage$make_image_data(
+                                  data, panel_params, coord, .fun, nudge_x, nudge_y
+                              )
+                              if (is.null(data) || nrow(data) == 0L) {
+                                  return(zeroGrob())
+                              }
+
+                              data <- repel_image_data(
+                                  data, panel_params, coord, by = by, asp = asp,
+                                  width = width, height = height,
+                                  image_fun = image_fun, use_cache = use_cache,
+                                  max.iter = max.iter, force = force,
+                                  box.padding = box.padding, direction = direction
+                              )
+
+                              GeomImage$draw_grobs(data, panel_params, coord, by,
+                                                   image_fun, hjust, asp,
+                                                   use_cache, width, height)
+                          })
+
+
+check_repel_number <- function(value, name, minimum = 0) {
+    if (!(is.numeric(value) && length(value) == 1L &&
+          !is.na(value) && is.finite(value) && value >= minimum)) {
+        stop("`", name, "` must be a single finite number >= ", minimum,
+             ", not ", paste(format(value), collapse = ", "), ".",
+             call. = FALSE)
+    }
+    as.numeric(value)
+}
+
+check_repel_count <- function(value, name) {
+    value <- check_repel_number(value, name)
+    if (value != floor(value)) {
+        stop("`", name, "` must be a whole number, not ", format(value), ".",
+             call. = FALSE)
+    }
+    as.integer(value)
+}
+
+check_repel_direction <- function(direction) {
+    supported <- c("both", "x", "y")
+    if (!(is.character(direction) && length(direction) == 1L &&
+          !is.na(direction) && direction %in% supported)) {
+        stop("`direction` must be one of \"both\", \"x\" or \"y\", not ",
+             paste(format(direction), collapse = ", "), ".", call. = FALSE)
+    }
+    direction
+}
+
+
+## physical aspect (height / width) of the panel; the width of an image drawn
+## with an `NULL` width (i.e. sized through `size`) is derived by grid from the
+## height in physical units, so it has to be converted back with this ratio.
+## `coord_fixed()` (and only it) knows the ratio, a square panel is assumed
+## otherwise, which over-estimates the width of a wide panel.
+panel_aspect_ratio <- function(coord, panel_params) {
+    ar <- tryCatch(coord$aspect(panel_params), error = function(e) NULL)
+    if (is.null(ar) || length(ar) != 1L || !is.finite(ar) || ar <= 0) {
+        return(1)
+    }
+    as.numeric(ar)
+}
+
+## bounding boxes (native panel units, `box.padding` included) of the images of
+## an already transformed `data`, following the rules of `imageGrob()`.
+## `keep` is FALSE for images that do not take part in the repulsion, i.e.
+## images without a size (`size = Inf`) and images that cannot be loaded.
+image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
+                              width = NULL, height = NULL, image_fun = NULL,
+                              use_cache = TRUE, box.padding = 0) {
+    n <- nrow(data)
+    explicit_width <- recycle_image_dimension(
+        if ("width" %in% names(data)) data$width else width, n
+    )
+    explicit_height <- recycle_image_dimension(
+        if ("height" %in% names(data)) data$height else height, n
+    )
+
+    boxes <- data.frame(
+        width = rep(NA_real_, n),
+        height = rep(NA_real_, n),
+        keep = rep(FALSE, n)
+    )
+    if (n == 0L) {
+        return(boxes)
+    }
+
+    panel_ar <- panel_aspect_ratio(coord, panel_params)
+    for (i in seq_len(n)) {
+        img <- data$image[i]
+        size <- data$size[i]
+        ## `imageGrob()` draws no image (or a full panel background) for these
+        if (is.na(img) || length(size) != 1L || is.na(size) ||
+            !is.finite(size)) {
+            next
+        }
+
+        w <- explicit_width[i]
+        h <- explicit_height[i]
+        if (!is.na(w) && !is.na(h)) {
+            boxes$width[i] <- w + box.padding
+            boxes$height[i] <- h + box.padding
+            boxes$keep[i] <- TRUE
+            next
+        }
+
+        ## the aspect ratio of the image is needed, both to complete an
+        ## explicit dimension and to turn `size` into a box
+        prepared <- prepare_image(img, colour = NULL, opacity = 1,
+                                  angle = data$angle[i], image_fun = image_fun,
+                                  use_cache = use_cache)
+        if (is.null(prepared)) next
+        ar <- getAR2(prepared)
+        if (!is.finite(ar) || ar <= 0) next
+
+        ## `imageGrob()` uses `ar / asp` as the aspect of the image
+        ratio <- ar / asp
+        if (!is.na(w)) {
+            h <- w / ratio
+        } else if (!is.na(h)) {
+            w <- h * ratio
+        } else {
+            ## `size` gives the height of the image, the width is derived by
+            ## grid from the height and the physical aspect of the panel
+            h <- if (by == "width") size / ratio else size
+            w <- h * ar * panel_ar
+        }
+        boxes$width[i] <- w + box.padding
+        boxes$height[i] <- h + box.padding
+        boxes$keep[i] <- TRUE
+    }
+
+    boxes
+}
+
+
+## move overlapping boxes apart; `x`, `y` are the centres of the boxes and
+## `width`, `height` their sizes, all in the same (native panel) units.
+repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
+                        direction = "both") {
+    n <- length(x)
+    if (n < 2L || max.iter <= 0L || force <= 0) {
+        return(list(x = x, y = y))
+    }
+
+    move_x <- direction %in% c("both", "x")
+    move_y <- direction %in% c("both", "y")
+
+    for (iter in seq_len(max.iter)) {
+        overlapping <- FALSE
+        for (i in seq_len(n - 1L)) {
+            j <- (i + 1L):n
+            dx <- x[j] - x[i]
+            dy <- y[j] - y[i]
+            ## overlap of the two boxes along each axis, positive means overlap
+            ox <- (width[i] + width[j]) / 2 - abs(dx)
+            oy <- (height[i] + height[j]) / 2 - abs(dy)
+            hit <- which(ox > 0 & oy > 0)
+            if (length(hit) == 0L) next
+            overlapping <- TRUE
+
+            j <- j[hit]
+            ox <- ox[hit]
+            oy <- oy[hit]
+            ## images at the very same position are always moved apart along
+            ## the positive axis, so that the result stays deterministic
+            sx <- ifelse(dx[hit] == 0, 1, sign(dx[hit]))
+            sy <- ifelse(dy[hit] == 0, 1, sign(dy[hit]))
+
+            if (move_x) {
+                fx <- force * ox / 2 * sx
+                x[i] <- x[i] - sum(fx)
+                x[j] <- x[j] + fx
+            }
+            if (move_y) {
+                fy <- force * oy / 2 * sy
+                y[i] <- y[i] - sum(fy)
+                y[j] <- y[j] + fy
+            }
+        }
+        if (!overlapping) break
+    }
+
+    list(x = x, y = y)
+}
+
+
+repel_image_data <- function(data, panel_params, coord, by = "width", asp = 1,
+                             width = NULL, height = NULL, image_fun = NULL,
+                             use_cache = TRUE, max.iter = 100L, force = 0.1,
+                             box.padding = 0, direction = "both") {
+    if (is.null(data) || nrow(data) == 0L) {
+        return(data)
+    }
+
+    boxes <- image_repel_boxes(data, panel_params, coord, by = by, asp = asp,
+                               width = width, height = height,
+                               image_fun = image_fun, use_cache = use_cache,
+                               box.padding = box.padding)
+    idx <- which(boxes$keep)
+    if (length(idx) < 2L) {
+        return(data)
+    }
+
+    moved <- repel_boxes(x = data$x[idx], y = data$y[idx],
+                         width = boxes$width[idx], height = boxes$height[idx],
+                         max.iter = max.iter, force = force,
+                         direction = direction)
+    data$x[idx] <- moved$x
+    data$y[idx] <- moved$y
+    data
+}
