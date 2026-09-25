@@ -20,7 +20,10 @@ ggbackground <- function(gg, background, ...) {
     ## observation and could tint or duplicate the image.
     background_layer <- geom_image(
         data = data.frame(x = 0.5, y = 0.5),
-        mapping = ggplot2::aes(x = x, y = y),
+        mapping = ggplot2::aes(
+            x = !!rlang::sym("x"),
+            y = !!rlang::sym("y")
+        ),
         inherit.aes = FALSE,
         image = background,
         size = Inf,
