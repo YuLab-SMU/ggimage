@@ -14,6 +14,8 @@ geom_image(
   by = "width",
   nudge_x = 0,
   use_cache = TRUE,
+  width = NULL,
+  height = NULL,
   ...
 )
 }
@@ -35,6 +37,16 @@ geom_image(
 \item{nudge_x}{horizontal adjustment to nudge image}
 
 \item{use_cache}{logical, whether to use image caching for better performance (default: TRUE)}
+
+\item{width, height}{Image width and height in native panel units, matching the
+plotting units used by the \code{size}/\code{by} behavior. They can be mapped per
+row via \code{aes(width = ..., height = ...)} or set for the whole layer. They
+override \code{size} and \code{by}; if only one is provided, the other is
+derived from the image ratio. If both are provided, the image is drawn in
+exactly that box and may be distorted. \code{coord_fixed()} controls the
+physical aspect of the panel but does not reinterpret these values. Invalid
+values are ignored and the \code{size}/\code{by} behavior is used for that
+image.}
 
 \item{...}{additional parameters}
 }

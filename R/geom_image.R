@@ -16,18 +16,19 @@
 ##' @param by one of 'width' or 'height'
 ##' @param nudge_x horizontal adjustment to nudge image
 ##' @param use_cache logical, whether to use image caching for better performance (default: TRUE)
-##' @param width,height Image width and height, in the same relative units as
-##'   the `size` aesthetic. They can be mapped per row via
-##'   `aes(width = ..., height = ...)` or set for the whole layer. They
+##' @param width,height Image width and height in native panel units, matching the
+##'   plotting units used by the `size`/`by` behavior. They can be mapped per
+##'   row via `aes(width = ..., height = ...)` or set for the whole layer. They
 ##'   override `size` (and therefore also `size = Inf` and `by`):
 ##'   - only `width` is provided, the height is derived from the image ratio;
 ##'   - only `height` is provided, the width is derived from the image ratio;
 ##'   - both are provided, the image is drawn in exactly that box, which may
-##'     distort it when the ratio of the box differs from the ratio of the
-##'     image.
+##'     distort it when the ratio of the box differs from the image ratio.
 ##'
-##'   Values that are `NA`, not finite or not positive are ignored, and the
-##'   `size`/`by` behavior is used for the affected image.
+##'   `coord_fixed()` controls the physical aspect of the panel; it does not
+##'   reinterpret these values. Values that are `NA`, not finite or not
+##'   positive are ignored, and the `size`/`by` behavior is used for the
+##'   affected image.
 ##' @param ... additional parameters
 ##' @return geom layer
 ##' @importFrom ggplot2 layer
