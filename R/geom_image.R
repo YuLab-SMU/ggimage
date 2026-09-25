@@ -121,6 +121,16 @@ GeomImage <- ggproto("GeomImage", Geom,
                                            use_cache=TRUE, width = NULL, height = NULL) {
                          data <- GeomImage$make_image_data(data, panel_params, coord, .fun, nudge_x, nudge_y)
 
+                         GeomImage$draw_grobs(data, panel_params, coord, by,
+                                              image_fun, hjust, asp, use_cache,
+                                              width, height)
+                     },
+                     ## draws the images of an already transformed `data`; split
+                     ## out of `draw_panel()` so that layers which move the data
+                     ## around (e.g. `GeomImageRepel`) can reuse it.
+                     draw_grobs = function(data, panel_params, coord, by, image_fun = NULL,
+                                           hjust=0.5, asp=1, use_cache=TRUE,
+                                           width = NULL, height = NULL) {
                          adjs <- GeomImage$build_adjust(data, panel_params, by)
                          widths <- recycle_image_dimension(
                              if ("width" %in% names(data)) data$width else width,
