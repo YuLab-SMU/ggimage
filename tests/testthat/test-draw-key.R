@@ -127,6 +127,30 @@ test_that("key data of several groups draws one grob per group", {
     expect_equal(rgba(key$children[[2]]$gp$col), c(0L, 191L, 196L, 128L))
 })
 
+test_that("image legend reuses the bundled logo within a session", {
+    cache <- ggimage:::.ggimage_key_image_cache
+    if (exists("image", envir = cache, inherits = FALSE)) {
+        rm("image", envir = cache)
+    }
+    on.exit(if (exists("image", envir = cache, inherits = FALSE)) {
+        rm("image", envir = cache)
+    }, add = TRUE)
+
+    reads <- 0L
+    load <- function() {
+        reads <<- reads + 1L
+        magick::image_read(system.file("extdata/Rlogo.png", package = "ggimage"))
+    }
+    testthat::local_mocked_bindings(load_key_image = load, .package = "ggimage")
+
+    withr::local_options(ggimage.keytype = "image")
+    draw_key_image(keydata(colour = "red", alpha = 1), list(), 20)
+    draw_key_image(keydata(colour = "blue", alpha = 0.5), list(), 20)
+
+    expect_equal(reads, 1L)
+    expect_true(exists("image", envir = cache, inherits = FALSE))
+})
+
 test_that("geom_image draws legend keys of mapped colour", {
     d <- data.frame(
         x = 1:3,

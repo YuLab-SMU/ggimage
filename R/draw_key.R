@@ -57,6 +57,24 @@ keytype <- function(kt) {
     kt
 }
 
+## Keep the bundled logo in the package namespace for the lifetime of the
+## session.  This is deliberately separate from the user image cache: the
+## legend image has a fixed package-local path and must not be persisted to
+## disk or survive unloading/reloading the package.
+.ggimage_key_image_cache <- new.env(parent = emptyenv())
+
+load_key_image <- function() {
+    image_read(system.file("extdata/Rlogo.png", package = "ggimage"))
+}
+
+get_key_image <- function() {
+    cache <- .ggimage_key_image_cache
+    if (!exists("image", envir = cache, inherits = FALSE)) {
+        assign("image", load_key_image(), envir = cache)
+    }
+    get("image", envir = cache, inherits = FALSE)
+}
+
 ##' @rdname draw_key
 ##' @importFrom grid rectGrob
 ##' @importFrom grid pointsGrob
@@ -81,7 +99,7 @@ draw_key_image <- function(data, params, size) {
     opacity <- key_alpha(data$alpha, n)
 
     if (kt == "image") {
-        img <- image_read(system.file("extdata/Rlogo.png", package="ggimage"))
+        img <- get_key_image()
         ## no colour to colorize with, the image is displayed as is
         colour <- key_colour(data$colour, n, default = NA_character_)
         grobs <- lapply(seq_len(n), function(i) {
