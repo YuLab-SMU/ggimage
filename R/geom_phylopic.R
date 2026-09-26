@@ -34,7 +34,24 @@ download_phylopic <- function(id, destdir = ".", ...) {
 
     valid <- !is.na(url) & nzchar(url)
     destfile[valid] <- paste0(destdir, '/', id[valid], n[valid])
-    for (i in which(valid)) {
+
+    ## A non-empty regular file is sufficient to avoid downloading the same
+    ## asset again.  Keep the check deliberately conservative: empty files and
+    ## directories are retried, while download errors retain their usual
+    ## behavior.
+    existing <- rep(FALSE, length(destfile))
+    existing[valid] <- file.exists(destfile[valid])
+    if (any(existing)) {
+        info <- file.info(destfile[existing])
+        existing[existing] <- !is.na(info$size) & info$size > 0 &
+            !is.na(info$isdir) & !info$isdir
+    }
+
+    pending <- which(valid & !existing)
+    ## Duplicate input IDs can point to the same destination.  Download each
+    ## destination at most once, without introducing parallel network calls.
+    pending <- pending[!duplicated(destfile[pending])]
+    for (i in pending) {
         utils::download.file(url[i], destfile[i], ...)
     }
     invisible(destfile)
@@ -74,37 +91,101 @@ phylopic <- function(id) {
 
 }
 
-# Universally unique identifier (uuid) of phylopic database 
+# Universally unique identifier (uuid) of phylopic database
 # is a 128-bit number. It has 32 alphanumeric characters in the
 # form of 8-4-4-4-12.
-.autocomplete_uid <- function(x){
+
+## Normalize only the lookup key.  The first spelling seen is still passed to
+## the resolver, so output values and names remain aligned with the input.
+.phylopic_lookup_key <- function(x) {
     x <- as.character(x)
+    key <- x
+    valid <- !is.na(x)
+    key[valid] <- tolower(trimws(x[valid]))
+    key
+}
+
+## Successful name lookups are stable for a session and safe to reuse.  Missing
+## results are intentionally not cached: a transient API failure should be
+## retried on a later call.  The cache is private to the package namespace and
+## includes the seed, so changing seed preserves phylopic_uid semantics.
+.phylopic_uid_cache <- new.env(parent = emptyenv())
+
+.phylopic_uid_cache_key <- function(name, seed) {
+    paste0(.phylopic_lookup_key(name), "\r",
+           paste(as.character(seed), collapse = ","))
+}
+
+.phylopic_uid_cache_get <- function(name, seed) {
+    key <- .phylopic_uid_cache_key(name, seed)
+    if (exists(key, envir = .phylopic_uid_cache, inherits = FALSE)) {
+        get(key, envir = .phylopic_uid_cache, inherits = FALSE)
+    } else {
+        NULL
+    }
+}
+
+.phylopic_uid_cache_set <- function(name, seed, uid) {
+    if (length(uid) == 1L && !is.na(uid) && nzchar(uid)) {
+        assign(.phylopic_uid_cache_key(name, seed), uid,
+               envir = .phylopic_uid_cache)
+    }
+    invisible(uid)
+}
+
+## Primarily useful for tests and for callers that deliberately want to force
+## fresh API lookups during a long-running session.
+.phylopic_uid_cache_clear <- function() {
+    rm(list = ls(envir = .phylopic_uid_cache, all.names = TRUE),
+       envir = .phylopic_uid_cache)
+    invisible(NULL)
+}
+
+.autocomplete_uid <- function(x){
     input_names <- names(x)
-    result <- vapply(seq_along(x), function(index) {
+    x <- as.character(x)
+    result <- rep(NA_character_, length(x))
+    names(result) <- input_names
+    if (length(x) == 0L) {
+        return(result)
+    }
+
+    key <- .phylopic_lookup_key(x)
+    missing <- is.na(x) | !nzchar(trimws(x))
+    uuid <- vapply(seq_along(x), function(index) {
         i <- x[[index]]
-        if (is.na(i) || !nzchar(trimws(i))) {
-            return(NA_character_)
+        if (missing[[index]]) {
+            FALSE
+        } else {
+            x1 <- strsplit(i, split = '-', fixed = TRUE)[[1]]
+            length(x1) == 5L &&
+                identical(as.integer(nchar(x1)), c(8L, 4L, 4L, 4L, 12L))
         }
+    }, logical(1))
+    result[uuid] <- x[uuid]
 
-        x1 <- strsplit(i, split='-', fixed = TRUE)[[1]]
-        is_uid <- length(x1) == 5 &&
-            identical(as.integer(nchar(x1)), c(8L, 4L, 4L, 4L, 12L))
-        if (is_uid) {
-            return(i)
-        }
+    lookup <- which(!missing & !uuid)
+    if (length(lookup) == 0L) {
+        return(result)
+    }
 
-        ## A name that cannot be resolved is represented by NA.  In
-        ## particular, do not let one missing name abort a batch lookup.
-        uid <- tryCatch(phylopic_uid(name = i)$uid,
+    ## Resolve only the first occurrence of each normalized name, then map the
+    ## result back to every input row.  This keeps order, names, and per-row NA
+    ## behavior unchanged while avoiding repeated API requests.
+    unique_keys <- unique(key[lookup])
+    for (lookup_key in unique_keys) {
+        indices <- lookup[key[lookup] == lookup_key]
+        first <- indices[[1L]]
+        uid <- tryCatch(phylopic_uid(name = x[[first]])$uid,
                         error = function(e) NA_character_)
         if (length(uid) == 0L || is.na(uid[[1]]) ||
             !nzchar(as.character(uid[[1]]))) {
-            NA_character_
+            uid <- NA_character_
         } else {
-            as.character(uid[[1]])
+            uid <- as.character(uid[[1]])
         }
-    }, character(1))
-    names(result) <- input_names
+        result[indices] <- uid
+    }
     result
 }
 
@@ -188,17 +269,34 @@ phylopic_uid <- function(name, seed=123) {
     ## losing the names that did resolve.
     name_input <- name
     name <- as.character(name)
-    uid <- vapply(seq_along(name), function(index) {
-        x <- name[[index]]
-        value <- tryCatch(phylopic_uid_item(x, seed = seed),
-                          error = function(e) NA_character_)
-        if (length(value) != 1L || is.na(value) || !nzchar(value)) {
-            NA_character_
+    uid <- rep(NA_character_, length(name))
+    if (length(name) == 0L) {
+        return(data.frame(name = name_input, uid = uid,
+                          stringsAsFactors = FALSE))
+    }
+
+    key <- .phylopic_lookup_key(name)
+    missing <- is.na(name) | !nzchar(trimws(name))
+    lookup <- which(!missing)
+    for (lookup_key in unique(key[lookup])) {
+        indices <- lookup[key[lookup] == lookup_key]
+        first <- indices[[1L]]
+        cached <- .phylopic_uid_cache_get(name[[first]], seed)
+        if (!is.null(cached)) {
+            value <- cached
         } else {
-            as.character(value)
+            value <- tryCatch(phylopic_uid_item(name[[first]], seed = seed),
+                              error = function(e) NA_character_)
+            if (length(value) != 1L || is.na(value) || !nzchar(value)) {
+                value <- NA_character_
+            } else {
+                value <- as.character(value)
+                .phylopic_uid_cache_set(name[[first]], seed, value)
+            }
         }
-    }, character(1))
-    return(data.frame(name = name_input, uid = uid, stringsAsFactors = FALSE))
+        uid[indices] <- value
+    }
+    data.frame(name = name_input, uid = uid, stringsAsFactors = FALSE)
 }
 
 ## Keep JSON parsing behind a small helper so malformed responses have one
