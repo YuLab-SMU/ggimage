@@ -292,7 +292,7 @@ repel_grid_state <- function(x, y, width, height) {
     n <- length(x)
     positive_size <- c(width[is.finite(width) & width > 0],
                        height[is.finite(height) & height > 0])
-    cell_size <- if (length(positive_size)) median(positive_size) else 1
+    cell_size <- if (length(positive_size)) stats::median(positive_size) else 1
     cell_size <- max(cell_size, .Machine$double.eps)
 
     ## Very large boxes can span an excessive number of cells. In that case a
