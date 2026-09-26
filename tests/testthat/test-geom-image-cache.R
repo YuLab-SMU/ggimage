@@ -90,14 +90,14 @@ test_that("cache policy bounds base and transformed caches with LRU eviction", {
   expect_equal(ggimage:::cache_get_image("a"), "a")
   now <- 3
   ggimage:::cache_set_image("c", "c")
-  expect_equal(ggimage::get_image_cache_size(), 2L)
+  expect_equal(ggimage:::get_image_cache_size(), 2L)
   expect_null(ggimage:::cache_get_image("b"))
   expect_equal(ggimage:::cache_get_image("a"), "a")
   expect_equal(ggimage:::cache_get_image("c"), "c")
 
   ggimage:::cache_set_transformed("one", 1)
   ggimage:::cache_set_transformed("two", 2)
-  expect_equal(ggimage::get_image_transform_cache_size(), 1L)
+  expect_equal(ggimage:::get_image_transform_cache_size(), 1L)
   expect_equal(ggimage:::cache_get_transformed("two"), 2)
 })
 
@@ -115,12 +115,12 @@ test_that("cache policy TTL uses a controllable clock", {
   expect_equal(ggimage:::cache_get_image("ttl"), "value")
   now <- 15
   expect_null(ggimage:::cache_get_image("ttl"))
-  expect_equal(ggimage::get_image_cache_size(), 0L)
+  expect_equal(ggimage:::get_image_cache_size(), 0L)
 
   ggimage:::cache_set_transformed("ttl", "value")
   now <- 20
   expect_null(ggimage:::cache_get_transformed("ttl"))
-  expect_equal(ggimage::get_image_transform_cache_size(), 0L)
+  expect_equal(ggimage:::get_image_transform_cache_size(), 0L)
 })
 
 test_that("use_cache FALSE and clear_image_cache bypass and clear policy state", {
@@ -135,10 +135,10 @@ test_that("use_cache FALSE and clear_image_cache bypass and clear policy state",
                invisible("value"))
   expect_null(ggimage:::cache_get_image("uncached"))
   ggimage:::cache_set_image("cached", "value")
-  expect_equal(ggimage::get_image_cache_size(), 1L)
+  expect_equal(ggimage:::get_image_cache_size(), 1L)
   ggimage:::clear_image_cache()
-  expect_equal(ggimage::get_image_cache_size(), 0L)
-  expect_equal(ggimage::get_image_transform_cache_size(), 0L)
+  expect_equal(ggimage:::get_image_cache_size(), 0L)
+  expect_equal(ggimage:::get_image_transform_cache_size(), 0L)
 })
 
 test_that("cache policy getter and setter expose compatible options", {
