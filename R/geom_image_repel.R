@@ -22,11 +22,13 @@
 ##'         about `(1 - force)^max.iter` of the initial one, so the default
 ##'         (`force = 0.1`, `max.iter = 100`) leaves essentially no overlap.
 ##' }
-##' Pairs of exactly coincident images are separated along the positive axis,
-##' which keeps the result reproducible. The cost is `O(n^2 * (max.iter + 256))`
-##' in the worst case; the final cleanup is hard-capped at 256 pair sweeps so
-##' dense inputs cannot make the cleanup grow with `n`. The layer is meant for
-##' the small numbers of images that are typical for image based annotations.
+##' which keeps the result reproducible. For large inputs, a mutable uniform-grid
+##' broad phase visits only boxes sharing one of the query box's cells; sparse
+##' layouts therefore avoid scanning every pair. The grid costs `O(n + k)` per
+##' sweep for `k` candidate checks (with `O(n^2)` worst-case dense behaviour),
+##' while small inputs retain the full pair scan. The cleanup is hard-capped at
+##' 256 sweeps so dense inputs cannot make cleanup grow with `n` beyond that
+##' fixed number of sweeps.
 ##'
 ##' Images are pushed away from each other only, they are **not** kept inside
 ##' the panel, and images are never re-ordered or removed. Images with
@@ -282,9 +284,148 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
 }
 
 
+## A mutable uniform grid used as a conservative broad phase. The grid is
+## rebuilt for each solver sweep and updated after every movement. Updating it
+## while scanning j in row order is important: a movement made by an earlier
+## pair can create a later overlap, just as it can in the historical full scan.
+repel_grid_state <- function(x, y, width, height) {
+    n <- length(x)
+    positive_size <- c(width[is.finite(width) & width > 0],
+                       height[is.finite(height) & height > 0])
+    cell_size <- if (length(positive_size)) median(positive_size) else 1
+    cell_size <- max(cell_size, .Machine$double.eps)
+
+    ## Very large boxes can span an excessive number of cells. In that case a
+    ## full scan is slower but bounded and preserves the exact solver path.
+    span_x <- width / cell_size + 1
+    span_y <- height / cell_size + 1
+    coverage <- span_x * span_y
+    if (any(!is.finite(coverage)) || any(span_x > 64 | span_y > 64) ||
+        sum(coverage) > max(4096, n * 64)) {
+        return(NULL)
+    }
+
+    cells <- new.env(hash = TRUE, parent = emptyenv())
+    state <- new.env(parent = emptyenv())
+    state$members <- vector("list", n)
+    state$x <- x
+    state$y <- y
+
+    cell_range <- function(lo, hi) {
+        seq.int(floor(lo / cell_size), floor(hi / cell_size))
+    }
+    box_keys <- function(i) {
+        x_cells <- cell_range(state$x[i] - width[i] / 2,
+                              state$x[i] + width[i] / 2)
+        y_cells <- cell_range(state$y[i] - height[i] / 2,
+                              state$y[i] + height[i] / 2)
+        as.vector(outer(x_cells, y_cells,
+                        FUN = function(a, b) paste(a, b, sep = ":")))
+    }
+    insert <- function(i) {
+        keys <- box_keys(i)
+        state$members[[i]] <- keys
+        for (key in keys) {
+            ids <- if (exists(key, cells, inherits = FALSE)) cells[[key]] else integer()
+            cells[[key]] <- c(ids, i)
+        }
+    }
+    remove <- function(i) {
+        for (key in state$members[[i]]) {
+            ids <- cells[[key]]
+            keep <- ids != i
+            if (any(keep)) cells[[key]] <- ids[keep]
+            else rm(list = key, envir = cells)
+        }
+        state$members[[i]] <- character()
+    }
+    update <- function(i, new_x, new_y) {
+        remove(i)
+        state$x[i] <- new_x
+        state$y[i] <- new_y
+        insert(i)
+    }
+    query <- function(i) {
+        keys <- box_keys(i)
+        ids <- unlist(lapply(keys, function(key) {
+            if (exists(key, cells, inherits = FALSE)) cells[[key]] else integer()
+        }), use.names = FALSE)
+        if (!length(ids)) return(integer())
+        sort(unique(ids))
+    }
+
+    for (i in seq_len(n)) insert(i)
+    list(query = query, update = update)
+}
+
+## One sequential solver sweep. The full nested loops remain the reference path
+## for small inputs; the grid path only replaces checks that cannot overlap on
+## either axis and otherwise visits pairs in exactly the same row order.
+repel_boxes_sweep <- function(x, y, width, height, move_x, move_y, force,
+                             broad.phase, clearance = 0) {
+    n <- length(x)
+    overlapping <- FALSE
+    max_overlap <- 0
+    use_grid <- isTRUE(broad.phase) && n > 64L &&
+        all(is.finite(x)) && all(is.finite(y)) &&
+        all(is.finite(width)) && all(is.finite(height))
+    grid <- if (use_grid) repel_grid_state(x, y, width, height) else NULL
+
+    for (i in seq_len(n - 1L)) {
+        if (is.null(grid)) {
+            candidates <- (i + 1L):n
+        } else {
+            candidates <- grid$query(i)
+            candidates <- candidates[candidates > i]
+        }
+        if (!length(candidates)) next
+
+        ## Query again after every candidate: movement of i or j updates the
+        ## grid and can make a later pair enter the candidate set.
+        next_j <- i + 1L
+        repeat {
+            if (!is.null(grid)) {
+                candidates <- grid$query(i)
+                candidates <- candidates[candidates >= next_j]
+                if (!length(candidates)) break
+                j <- candidates[1L]
+            } else {
+                j <- next_j
+                if (j > n) break
+            }
+            next_j <- j + 1L
+
+            ox <- (width[i] + width[j]) / 2 - abs(x[j] - x[i])
+            oy <- (height[i] + height[j]) / 2 - abs(y[j] - y[i])
+            if (!(ox > 0 && oy > 0)) next
+            overlapping <- TRUE
+            max_overlap <- max(max_overlap, min(ox, oy))
+            sx <- if (x[j] - x[i] == 0) 1 else sign(x[j] - x[i])
+            sy <- if (y[j] - y[i] == 0) 1 else sign(y[j] - y[i])
+
+            if (move_x) {
+                shift <- force * ox / 2 + clearance
+                x[i] <- x[i] - shift * sx
+                x[j] <- x[j] + shift * sx
+            }
+            if (move_y) {
+                shift <- force * oy / 2 + clearance
+                y[i] <- y[i] - shift * sy
+                y[j] <- y[j] + shift * sy
+            }
+            if (!is.null(grid)) {
+                grid$update(i, x[i], y[i])
+                grid$update(j, x[j], y[j])
+            }
+        }
+    }
+    list(x = x, y = y, overlapping = overlapping, max_overlap = max_overlap)
+}
+
+
 ## Deterministic pairwise solver kept isolated for direct geometry testing.
 repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
-                        direction = "both") {
+                        direction = "both", broad.phase = TRUE) {
     n <- length(x)
     if (n < 2L || max.iter <= 0L || force <= 0) {
         return(list(x = x, y = y))
@@ -295,28 +436,12 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
     overlapping <- FALSE
 
     for (iter in seq_len(max.iter)) {
-        overlapping <- FALSE
-        for (i in seq_len(n - 1L)) {
-            for (j in (i + 1L):n) {
-                ox <- (width[i] + width[j]) / 2 - abs(x[j] - x[i])
-                oy <- (height[i] + height[j]) / 2 - abs(y[j] - y[i])
-                if (!(ox > 0 && oy > 0)) next
-                overlapping <- TRUE
-                sx <- if (x[j] - x[i] == 0) 1 else sign(x[j] - x[i])
-                sy <- if (y[j] - y[i] == 0) 1 else sign(y[j] - y[i])
-
-                if (move_x) {
-                    shift <- force * ox / 2
-                    x[i] <- x[i] - shift * sx
-                    x[j] <- x[j] + shift * sx
-                }
-                if (move_y) {
-                    shift <- force * oy / 2
-                    y[i] <- y[i] - shift * sy
-                    y[j] <- y[j] + shift * sy
-                }
-            }
-        }
+        sweep <- repel_boxes_sweep(
+            x, y, width, height, move_x, move_y, force, broad.phase
+        )
+        x <- sweep$x
+        y <- sweep$y
+        overlapping <- sweep$overlapping
         if (!overlapping) break
     }
 
@@ -332,30 +457,13 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
         overlap_tol <- 1e-12
         cleanup_limit <- 256L
         for (cleanup in seq_len(cleanup_limit)) {
-            changed <- FALSE
-            max_overlap <- 0
-            for (i in seq_len(n - 1L)) {
-                for (j in (i + 1L):n) {
-                    ox <- (width[i] + width[j]) / 2 - abs(x[j] - x[i])
-                    oy <- (height[i] + height[j]) / 2 - abs(y[j] - y[i])
-                    if (!(ox > 0 && oy > 0)) next
-                    changed <- TRUE
-                    max_overlap <- max(max_overlap, min(ox, oy))
-                    sx <- if (x[j] - x[i] == 0) 1 else sign(x[j] - x[i])
-                    sy <- if (y[j] - y[i] == 0) 1 else sign(y[j] - y[i])
-                    if (move_x) {
-                        shift <- (ox + 2 * clearance) / 2
-                        x[i] <- x[i] - shift * sx
-                        x[j] <- x[j] + shift * sx
-                    }
-                    if (move_y) {
-                        shift <- (oy + 2 * clearance) / 2
-                        y[i] <- y[i] - shift * sy
-                        y[j] <- y[j] + shift * sy
-                    }
-                }
-            }
-            if (!changed || max_overlap <= overlap_tol) break
+            sweep <- repel_boxes_sweep(
+                x, y, width, height, move_x, move_y, 1, broad.phase,
+                clearance = clearance
+            )
+            x <- sweep$x
+            y <- sweep$y
+            if (!sweep$overlapping || sweep$max_overlap <= overlap_tol) break
         }
     }
 
