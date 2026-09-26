@@ -49,3 +49,22 @@ test_that("image_fun participates in the transform cache key", {
   expect_equal(blue_pixel, c(0L, 0L, 255L))
   expect_equal(ggimage:::get_image_transform_cache_size(), 2L)
 })
+
+
+test_that("repeated local images reuse the image caches", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+
+  image <- system.file("extdata/Rlogo.png", package = "ggimage")
+  args <- list(
+    x = 0.5, y = 0.5, size = 0.05, img = image,
+    colour = NULL, opacity = 1, angle = 0, adj = 1,
+    image_fun = NULL, hjust = 0.5, by = "width", asp = 1,
+    use_cache = TRUE, width = NA_real_, height = NA_real_
+  )
+  grobs <- replicate(3L, do.call(ggimage:::imageGrob, args), simplify = FALSE)
+
+  expect_length(grobs, 3L)
+  expect_equal(ggimage:::get_image_cache_size(), 1L)
+  expect_equal(ggimage:::get_image_transform_cache_size(), 1L)
+})
