@@ -21,6 +21,35 @@
 ## @importFrom grid pushViewport
 ##' @export
 ##' @author guangchuang yu
+## Convert only stable, local subview objects.  Functions/formulas and other
+## classes may have side effects when printed, so leave those uncached.
+.subview_cache_key <- function(subview) {
+    if (!inherits(subview, c("grob", "ggplot", "magick-image"))) {
+        return(NULL)
+    }
+    tryCatch(
+        paste(class(subview)[[1L]], digest(subview), sep = "|"),
+        error = function(e) NULL
+    )
+}
+
+.subview_grob_memo <- function(converter = as.grob) {
+    cache <- new.env(parent = emptyenv())
+
+    function(subview) {
+        key <- .subview_cache_key(subview)
+        if (!is.null(key) && exists(key, envir = cache, inherits = FALSE)) {
+            return(get(key, envir = cache, inherits = FALSE))
+        }
+
+        grob <- converter(subview)
+        if (!is.null(key)) {
+            assign(key, grob, envir = cache)
+        }
+        grob
+    }
+}
+
 geom_subview <- function(mapping = NULL, data = NULL, width=.1, height=.1, x = NULL, y = NULL, subview = NULL) {
     ## can't support `aes(x, y, subview=subview)` as ggplot2 will throw:
     ##     cannot coerce class "c("ggtree", "gg", "ggplot")" to a data.frame
@@ -79,9 +108,10 @@ geom_subview <- function(mapping = NULL, data = NULL, width=.1, height=.1, x = N
     data$ymin <- data[[yvar]] - data$height/2
     data$ymax <- data[[yvar]] + data$height/2
 
+    grob_for_subview <- .subview_grob_memo()
     lapply(1:nrow(data), function(i) {
         annotation_custom(
-            as.grob(data$subview[[i]]),
+            grob_for_subview(data$subview[[i]]),
             xmin = data$xmin[i],
             xmax = data$xmax[i],
             ymin = data$ymin[i],
