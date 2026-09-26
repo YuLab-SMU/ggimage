@@ -14,7 +14,13 @@ geom_bgimage <- function(image) {
 ##' @method ggplot_add bgimage
 ##' @export
 ggplot_add.bgimage <- function(object, plot, object_name, ...) {
-    ly <- geom_image(image = object$image, size = Inf)
-    plot$layers <- c(ly, plot$layers)
-    return(plot )
+    background_layer <- geom_image(
+        data = data.frame(x = 0.5, y = 0.5),
+        mapping = ggplot2::aes(x = x, y = y),
+        inherit.aes = FALSE,
+        image = object$image,
+        size = Inf
+    )
+    plot$layers <- c(list(background_layer), plot$layers)
+    return(plot)
 }
