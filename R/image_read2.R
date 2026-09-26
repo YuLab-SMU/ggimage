@@ -17,33 +17,41 @@ image_read2 <- function(path, ..., cut_empty_space = TRUE) {
     }
 
     bitmap <- img[[1]]
-    info <- image_info(img)
+    bitmap_dim <- dim(bitmap)
+    n_channels <- bitmap_dim[[1L]]
 
-    row_not_blank <- c(range(which(rowSums(bitmap[1,,] == "ff") != info$height)),
-                       range(which(rowSums(bitmap[2,,] == "ff") != info$height)),
-                       range(which(rowSums(bitmap[3,,] == "ff") != info$height))
-                       )
+    ## The first three channels define the white margin.  Build one logical
+    ## mask instead of calculating row and column summaries for each channel;
+    ## this also avoids copying each cropped channel into a second array.
+    non_white <- bitmap[1L,,] != as.raw(255L)
+    if (n_channels >= 2L) {
+        non_white <- non_white | bitmap[2L,,] != as.raw(255L)
+    }
+    if (n_channels >= 3L) {
+        non_white <- non_white | bitmap[3L,,] != as.raw(255L)
+    }
 
-    col_not_blank <- c(range(which(colSums(bitmap[1,,] == "ff") != info$width)),
-                       range(which(colSums(bitmap[2,,] == "ff") != info$width)),
-                       range(which(colSums(bitmap[3,,] == "ff") != info$width))
-                       )
+    row_keep <- rowSums(non_white) > 0L
+    col_keep <- colSums(non_white) > 0L
+    if (!any(row_keep) || !any(col_keep)) {
+        ## Keep the original image for an all-white input.  Apart from being
+        ## the least surprising result, this avoids invalid range(integer(0))
+        ## bounds and an unnecessary image reconstruction.
+        return(img)
+    }
 
-    row_min <- min(row_not_blank)
-    row_max <- max(row_not_blank)
-    col_min <- min(col_not_blank)
-    col_max <- max(col_not_blank)
+    row_bounds <- range(which(row_keep))
+    col_bounds <- range(which(col_keep))
 
-    x <- bitmap[1, row_min:row_max, col_min:col_max]
-    y <- bitmap[2, row_min:row_max, col_min:col_max]
-    z <- bitmap[3, row_min:row_max, col_min:col_max]
+    ## No margin means no reconstruction (and therefore no pixel conversion).
+    if (identical(row_bounds, c(1L, bitmap_dim[[2L]])) &&
+        identical(col_bounds, c(1L, bitmap_dim[[3L]]))) {
+        return(img)
+    }
 
-    bitmap <- array(as.raw(0),
-        dim = c(3, row_max - row_min + 1, col_max - col_min + 1))
-
-    bitmap[1,,] <- x
-    bitmap[2,,] <- y
-    bitmap[3,,] <- z
-
-    image_read(bitmap)
+    ## Crop all channels in one operation so an input matte/alpha channel is
+    ## retained.  `drop = FALSE` keeps the array shape for narrow images.
+    cropped <- bitmap[, row_bounds[[1L]]:row_bounds[[2L]],
+                      col_bounds[[1L]]:col_bounds[[2L]], drop = FALSE]
+    image_read(cropped)
 }
