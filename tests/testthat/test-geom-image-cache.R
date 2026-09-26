@@ -51,6 +51,7 @@ test_that("image_fun participates in the transform cache key", {
 })
 
 
+
 test_that("repeated local images reuse the image caches", {
   ggimage:::clear_image_cache()
   withr::defer(ggimage:::clear_image_cache())
@@ -67,4 +68,92 @@ test_that("repeated local images reuse the image caches", {
   expect_length(grobs, 3L)
   expect_equal(ggimage:::get_image_cache_size(), 1L)
   expect_equal(ggimage:::get_image_transform_cache_size(), 1L)
+})
+
+
+test_that("cache policy bounds base and transformed caches with LRU eviction", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+  now <- 0
+  withr::local_options(list(
+    ggimage.image_cache_base_capacity = 2,
+    ggimage.image_cache_transform_capacity = 1,
+    ggimage.image_cache_ttl = Inf,
+    ggimage.image_cache_eviction = "lru",
+    ggimage.image_cache_clock = function() now
+  ))
+
+  ggimage:::cache_set_image("a", "a")
+  now <- 1
+  ggimage:::cache_set_image("b", "b")
+  now <- 2
+  expect_equal(ggimage:::cache_get_image("a"), "a")
+  now <- 3
+  ggimage:::cache_set_image("c", "c")
+  expect_equal(ggimage::get_image_cache_size(), 2L)
+  expect_null(ggimage:::cache_get_image("b"))
+  expect_equal(ggimage:::cache_get_image("a"), "a")
+  expect_equal(ggimage:::cache_get_image("c"), "c")
+
+  ggimage:::cache_set_transformed("one", 1)
+  ggimage:::cache_set_transformed("two", 2)
+  expect_equal(ggimage::get_image_transform_cache_size(), 1L)
+  expect_equal(ggimage:::cache_get_transformed("two"), 2)
+})
+
+test_that("cache policy TTL uses a controllable clock", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+  now <- 10
+  withr::local_options(list(
+    ggimage.image_cache_capacity = Inf,
+    ggimage.image_cache_ttl = 5,
+    ggimage.image_cache_clock = function() now
+  ))
+
+  ggimage:::cache_set_image("ttl", "value")
+  expect_equal(ggimage:::cache_get_image("ttl"), "value")
+  now <- 15
+  expect_null(ggimage:::cache_get_image("ttl"))
+  expect_equal(ggimage::get_image_cache_size(), 0L)
+
+  ggimage:::cache_set_transformed("ttl", "value")
+  now <- 20
+  expect_null(ggimage:::cache_get_transformed("ttl"))
+  expect_equal(ggimage::get_image_transform_cache_size(), 0L)
+})
+
+test_that("use_cache FALSE and clear_image_cache bypass and clear policy state", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+  withr::local_options(list(
+    ggimage.image_cache_capacity = 1,
+    ggimage.image_cache_ttl = Inf
+  ))
+
+  expect_equal(ggimage:::cache_set_image("uncached", "value", use_cache = FALSE),
+               invisible("value"))
+  expect_null(ggimage:::cache_get_image("uncached"))
+  ggimage:::cache_set_image("cached", "value")
+  expect_equal(ggimage::get_image_cache_size(), 1L)
+  ggimage:::clear_image_cache()
+  expect_equal(ggimage::get_image_cache_size(), 0L)
+  expect_equal(ggimage::get_image_transform_cache_size(), 0L)
+})
+
+test_that("cache policy getter and setter expose compatible options", {
+  old_options <- options(
+    ggimage.image_cache_capacity = NULL,
+    ggimage.image_cache_ttl = NULL,
+    ggimage.image_cache_eviction = NULL
+  )
+  withr::defer(options(old_options))
+  old <- ggimage::set_image_cache_policy(capacity = 3, ttl = 4, eviction = "fifo")
+  policy <- ggimage::get_image_cache_policy()
+  expect_equal(policy$base_capacity, 3)
+  expect_equal(policy$transform_capacity, 3)
+  expect_equal(policy$base_ttl, 4)
+  expect_equal(policy$transform_ttl, 4)
+  expect_equal(policy$eviction, "fifo")
+  expect_type(old, "list")
 })

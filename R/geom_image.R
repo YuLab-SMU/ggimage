@@ -214,29 +214,164 @@ GeomImage <- ggproto("GeomImage", Geom,
                      )
 
 #### caching mechanism for images ####
-# Using yulab.utils cache system:
-# - get_cache_item() auto-initializes cache items if they don't exist
-# - get_cache_element() retrieves specific elements from cache items
-# - update_cache_item() stores data in cache items
-# - rm_cache_item() removes cache items
+# Image values continue to live in yulab.utils' process-global cache.  The
+# metadata below is package-local and is deliberately kept separate so older
+# cache entries (and users of yulab.utils) remain readable.
 .IMAGE_CACHE_ITEM <- ".ggimage_cache_image"
 .IMAGE_TRANSFORM_CACHE_ITEM <- ".ggimage_cache_image_transform"
+.IMAGE_CACHE_META <- new.env(parent = emptyenv())
+
+# Cache policy options (all limits are per cache unless a cache-specific option
+# is supplied).  The defaults are intentionally unlimited, matching the
+# historical behaviour.  A clock option is provided as a small test seam and
+# must return a POSIXct or numeric value in seconds.
+#
+#   ggimage.image_cache = list(capacity = Inf, ttl = Inf,
+#                              eviction = "lru")
+#   ggimage.image_cache_capacity / _ttl / _eviction
+#   ggimage.image_cache_base_capacity / _transform_capacity
+#   ggimage.image_cache_base_ttl / _transform_ttl
+#   ggimage.image_cache_clock
+.image_cache_policy <- function() {
+  nested <- getOption("ggimage.image_cache", NULL)
+  if (!is.list(nested)) nested <- list()
+  nested_base <- nested$base
+  if (!is.list(nested_base)) nested_base <- list()
+  nested_transform <- nested$transform
+  if (!is.list(nested_transform)) nested_transform <- nested$transformed
+  if (!is.list(nested_transform)) nested_transform <- list()
+
+  pick <- function(option, ...) {
+    value <- getOption(option, NULL)
+    if (!is.null(value)) return(value)
+    keys <- c(...)
+    for (key in keys) {
+      if (!is.null(nested[[key]])) return(nested[[key]])
+    }
+    NULL
+  }
+  pick_specific <- function(option, specific, global, default) {
+    value <- getOption(option, NULL)
+    if (!is.null(value)) return(value)
+    if (!is.null(specific)) return(specific)
+    if (!is.null(global)) return(global)
+    default
+  }
+  normalize_capacity <- function(value) {
+    value <- suppressWarnings(as.numeric(value)[1L])
+    if (length(value) != 1L || is.na(value) || is.nan(value) || value < 0)
+      return(Inf)
+    if (is.infinite(value)) Inf else floor(value)
+  }
+  normalize_ttl <- function(value) {
+    value <- suppressWarnings(as.numeric(value)[1L])
+    if (length(value) != 1L || is.na(value) || is.nan(value) || value < 0)
+      return(Inf)
+    value
+  }
+  global_capacity <- pick("ggimage.image_cache_capacity", "capacity")
+  if (is.null(global_capacity))
+    global_capacity <- getOption("ggimage.image_cache_max_items", NULL)
+  if (is.null(global_capacity))
+    global_capacity <- getOption("ggimage.cache.max_items", NULL)
+  if (is.null(global_capacity)) global_capacity <- nested$max_items
+  global_ttl <- pick("ggimage.image_cache_ttl", "ttl")
+  if (is.null(global_ttl)) global_ttl <- getOption("ggimage.cache.ttl", NULL)
+  if (is.null(global_ttl)) global_ttl <- nested$ttl
+  global_eviction <- pick("ggimage.image_cache_eviction", "eviction")
+  base_capacity <- getOption("ggimage.image_cache_base_capacity", NULL)
+  if (is.null(base_capacity)) base_capacity <- nested_base$capacity
+  transform_capacity <- getOption("ggimage.image_cache_transform_capacity", NULL)
+  if (is.null(transform_capacity)) transform_capacity <- nested_transform$capacity
+  base_ttl <- getOption("ggimage.image_cache_base_ttl", NULL)
+  if (is.null(base_ttl)) base_ttl <- nested_base$ttl
+  transform_ttl <- getOption("ggimage.image_cache_transform_ttl", NULL)
+  if (is.null(transform_ttl)) transform_ttl <- nested_transform$ttl
+  eviction <- global_eviction %||% "lru"
+  if (length(eviction) != 1L || is.na(eviction) ||
+      !eviction %in% c("lru", "fifo", "none")) eviction <- "lru"
+  clock <- getOption("ggimage.image_cache_clock", nested$clock %||% Sys.time)
+  if (!is.function(clock)) clock <- Sys.time
+  list(
+    base_capacity = normalize_capacity(pick_specific(
+      "ggimage.image_cache_base_capacity", base_capacity,
+      global_capacity, Inf)),
+    transform_capacity = normalize_capacity(pick_specific(
+      "ggimage.image_cache_transform_capacity", transform_capacity,
+      global_capacity, Inf)),
+    base_ttl = normalize_ttl(pick_specific(
+      "ggimage.image_cache_base_ttl", base_ttl, global_ttl, Inf)),
+    transform_ttl = normalize_ttl(pick_specific(
+      "ggimage.image_cache_transform_ttl", transform_ttl, global_ttl, Inf)),
+    eviction = as.character(eviction),
+    clock = clock
+  )
+}
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
+##' Get or set the global image cache policy.
+##'
+##' Cache limits may also be supplied with `options()`: use
+##' `ggimage.image_cache_capacity`, `ggimage.image_cache_ttl`, and
+##' `ggimage.image_cache_eviction` for both caches, or the corresponding
+##' `ggimage.image_cache_base_*` and `ggimage.image_cache_transform_*` options
+##' independently.  The default capacity and TTL are infinite, preserving the
+##' historical unbounded cache.  `eviction` is one of `"lru"`, `"fifo"`, or
+##' `"none"`; the last value disables capacity eviction.  `clock` is intended
+##' for deterministic tests and should return seconds or a POSIXct value.
+##'
+##' @param capacity,ttl Optional shared capacity (number of entries) and TTL
+##'   (seconds). `NULL` leaves the current option unchanged.
+##' @param eviction Optional eviction policy: `"lru"`, `"fifo"`, or `"none"`.
+##' @param base_capacity,transform_capacity Cache-specific capacities.
+##' @param base_ttl,transform_ttl Cache-specific TTLs in seconds.
+##' @param clock Optional function used as the cache clock.
+##' @return `get_image_cache_policy()` returns a policy list. The setter returns
+##'   the previous policy invisibly.
+##' @export
+get_image_cache_policy <- function() {
+  policy <- .image_cache_policy()
+  policy$clock <- NULL
+  policy
+}
+
+##' @rdname get_image_cache_policy
+##' @export
+set_image_cache_policy <- function(capacity = NULL, ttl = NULL, eviction = NULL,
+                                   base_capacity = NULL,
+                                   transform_capacity = NULL,
+                                   base_ttl = NULL, transform_ttl = NULL,
+                                   clock = NULL) {
+  old <- get_image_cache_policy()
+  values <- list(
+    ggimage.image_cache_capacity = capacity,
+    ggimage.image_cache_ttl = ttl,
+    ggimage.image_cache_eviction = eviction,
+    ggimage.image_cache_base_capacity = base_capacity,
+    ggimage.image_cache_transform_capacity = transform_capacity,
+    ggimage.image_cache_base_ttl = base_ttl,
+    ggimage.image_cache_transform_ttl = transform_ttl,
+    ggimage.image_cache_clock = clock
+  )
+  values <- values[!vapply(values, is.null, logical(1))]
+  if (length(values)) do.call(options, values)
+  invisible(old)
+}
 
 # Helper function to check if image is invalid
 is_invalid <- function(img) {
   is.null(img) || length(img) == 0 || (is.character(img) && (is.na(img) || img == ""))
 }
 
-# generate stable key：path→standardized character；object→digest
+# generate stable key: path -> standardized character; object -> digest
 #' @importFrom digest digest
 image_cache_key <- function(img) {
   if (is.character(img)) {
-    # standardized path（not force mustWork，allow remote URL or path don't exits）
     kp <- tryCatch(normalizePath(img, winslash = "/", mustWork = FALSE),
                    error = function(e) img)
     return(kp)
   }
-  # for non-character：use digest
   digest(img)
 }
 
@@ -247,59 +382,179 @@ image_fun_cache_key <- function(image_fun) {
 
 image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NULL,
                                 image_fun_key = NULL) {
-  if (is.null(image_fun_key)) {
-    image_fun_key <- image_fun_cache_key(image_fun)
-  }
+  if (is.null(image_fun_key)) image_fun_key <- image_fun_cache_key(image_fun)
   paste(base_key,
         if (is.null(angle) || is.na(angle)) 0 else angle,
         if (is.null(colour) || is.na(colour)) "" else as.character(colour),
         if (is.null(opacity) || is.na(opacity)) "" else as.character(opacity),
-        image_fun_key,
-        sep = "|")
+        image_fun_key, sep = "|")
 }
 
-# store image into cache
+.image_cache_now <- function(policy) {
+  value <- tryCatch(policy$clock(), error = function(e) Sys.time())
+  value <- suppressWarnings(as.numeric(value[[1L]]))
+  if (!length(value) || !is.finite(value)) as.numeric(Sys.time()) else value
+}
+
+.image_cache_meta_get <- function(item) {
+  if (exists(item, envir = .IMAGE_CACHE_META, inherits = FALSE))
+    get(item, envir = .IMAGE_CACHE_META, inherits = FALSE)
+  else list()
+}
+
+.image_cache_meta_set <- function(item, metadata) {
+  assign(item, metadata, envir = .IMAGE_CACHE_META)
+}
+
+.image_cache_next_sequence <- function() {
+  sequence <- get0(".sequence", envir = .IMAGE_CACHE_META, ifnotfound = 0L)
+  sequence <- sequence + 1L
+  assign(".sequence", sequence, envir = .IMAGE_CACHE_META)
+  sequence
+}
+
+.image_cache_remove_keys <- function(item, keys) {
+  if (!length(keys)) return(invisible(NULL))
+  values <- tryCatch(get_cache_item(item), error = function(e) NULL)
+  if (is.null(values)) return(invisible(NULL))
+  keep <- setdiff(names(values), keys)
+  tryCatch(rm_cache_item(item), error = function(e) NULL)
+  if (length(keep)) {
+    tryCatch(update_cache_item(item, values[keep]), error = function(e) NULL)
+  }
+  invisible(NULL)
+}
+
+.image_cache_prune <- function(item, policy, now) {
+  values <- tryCatch(get_cache_item(item), error = function(e) NULL)
+  if (is.null(values) || !length(values)) return(values)
+  # Let yulab.utils remove entries written with its native TTL wrapper.
+  for (key in names(values)) tryCatch(get_cache_element(item, key), error = function(e) NULL)
+  values <- tryCatch(get_cache_item(item), error = function(e) NULL)
+  metadata <- .image_cache_meta_get(item)
+  expired <- names(values)[vapply(names(values), function(key) {
+    entry <- metadata[[key]]
+    !is.null(entry) && is.finite(entry$expires) && now >= entry$expires
+  }, logical(1))]
+  if (length(expired)) {
+    .image_cache_remove_keys(item, expired)
+    metadata[expired] <- NULL
+    .image_cache_meta_set(item, metadata)
+    values <- tryCatch(get_cache_item(item), error = function(e) NULL)
+  }
+  if (length(metadata)) {
+    metadata <- metadata[intersect(names(metadata), names(values))]
+    .image_cache_meta_set(item, metadata)
+  }
+  values
+}
+
+.image_cache_touch <- function(item, key, ttl, now, reset = FALSE) {
+  metadata <- .image_cache_meta_get(item)
+  entry <- metadata[[key]]
+  if (is.null(entry) || reset) {
+    expires <- if (is.finite(ttl)) now + ttl else Inf
+    entry <- list(created = now, last_access = now, expires = expires,
+                  sequence = .image_cache_next_sequence())
+  } else {
+    entry$last_access <- now
+  }
+  metadata[[key]] <- entry
+  .image_cache_meta_set(item, metadata)
+}
+
+.image_cache_enforce_capacity <- function(item, capacity, eviction, now, ttl) {
+  values <- .image_cache_prune(item, .image_cache_policy(), now)
+  if (is.null(values) || !length(values) || !is.finite(capacity) || eviction == "none")
+    return(invisible(NULL))
+  metadata <- .image_cache_meta_get(item)
+  for (key in names(values)) {
+    if (is.null(metadata[[key]])) .image_cache_touch(item, key, ttl, now)
+  }
+  metadata <- .image_cache_meta_get(item)
+  if (length(values) <= capacity) return(invisible(NULL))
+  metric <- if (eviction == "fifo") {
+    vapply(metadata[names(values)], function(x) x$sequence, numeric(1))
+  } else {
+    vapply(metadata[names(values)], function(x) x$last_access, numeric(1))
+  }
+  remove <- names(values)[order(metric, names(values))[seq_len(length(values) - capacity)]]
+  .image_cache_remove_keys(item, remove)
+  metadata[remove] <- NULL
+  .image_cache_meta_set(item, metadata)
+  invisible(NULL)
+}
+
+# store/read cache entries while preserving the original helper signatures
 cache_get_image <- function(key, use_cache = TRUE) {
   if (!use_cache) return(NULL)
-  # attempt to read from cache; yulab.utils handles initialization
-  tryCatch(get_cache_element(.IMAGE_CACHE_ITEM, key), error = function(e) NULL)
+  policy <- .image_cache_policy()
+  now <- .image_cache_now(policy)
+  .image_cache_prune(.IMAGE_CACHE_ITEM, policy, now)
+  value <- tryCatch(get_cache_element(.IMAGE_CACHE_ITEM, key), error = function(e) NULL)
+  if (!is.null(value)) .image_cache_touch(.IMAGE_CACHE_ITEM, key, policy$base_ttl, now)
+  value
 }
 
-# write cache (base image)
 cache_set_image <- function(key, value, use_cache = TRUE) {
   if (!use_cache) return(invisible(value))
+  policy <- .image_cache_policy()
+  now <- .image_cache_now(policy)
   tryCatch(update_cache_item(.IMAGE_CACHE_ITEM, stats::setNames(list(value), key)),
-           error = function(e) invisible(NULL))
+           error = function(e) return(invisible(NULL)))
+  .image_cache_touch(.IMAGE_CACHE_ITEM, key, policy$base_ttl, now, reset = TRUE)
+  .image_cache_enforce_capacity(.IMAGE_CACHE_ITEM, policy$base_capacity,
+                                policy$eviction, now, policy$base_ttl)
   invisible(value)
 }
 
-# read cache（transformed image）
 cache_get_transformed <- function(tkey, use_cache = TRUE) {
   if (!use_cache) return(NULL)
-  tryCatch(get_cache_element(.IMAGE_TRANSFORM_CACHE_ITEM, tkey), error = function(e) NULL)
+  policy <- .image_cache_policy()
+  now <- .image_cache_now(policy)
+  .image_cache_prune(.IMAGE_TRANSFORM_CACHE_ITEM, policy, now)
+  value <- tryCatch(get_cache_element(.IMAGE_TRANSFORM_CACHE_ITEM, tkey), error = function(e) NULL)
+  if (!is.null(value)) .image_cache_touch(.IMAGE_TRANSFORM_CACHE_ITEM, tkey,
+                                           policy$transform_ttl, now)
+  value
 }
 
-# write cache（after transformed）
 cache_set_transformed <- function(tkey, value, use_cache = TRUE) {
   if (!use_cache) return(invisible(value))
-  tryCatch(update_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM, stats::setNames(list(value), tkey)),
-           error = function(e) invisible(NULL))
+  policy <- .image_cache_policy()
+  now <- .image_cache_now(policy)
+  tryCatch(update_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM,
+                             stats::setNames(list(value), tkey)),
+           error = function(e) return(invisible(NULL)))
+  .image_cache_touch(.IMAGE_TRANSFORM_CACHE_ITEM, tkey, policy$transform_ttl,
+                     now, reset = TRUE)
+  .image_cache_enforce_capacity(.IMAGE_TRANSFORM_CACHE_ITEM,
+                                policy$transform_capacity, policy$eviction,
+                                now, policy$transform_ttl)
   invisible(value)
 }
 
-# clean all image cache（Optional）
+# clean all image cache (and policy metadata)
 clear_image_cache <- function() {
   tryCatch(rm_cache_item(.IMAGE_CACHE_ITEM), error = function(e) invisible(NULL))
   tryCatch(rm_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM), error = function(e) invisible(NULL))
+  for (item in c(.IMAGE_CACHE_ITEM, .IMAGE_TRANSFORM_CACHE_ITEM))
+    if (exists(item, envir = .IMAGE_CACHE_META, inherits = FALSE))
+      rm(list = item, envir = .IMAGE_CACHE_META)
+  invisible(NULL)
 }
 
-# Stat cache（Optional，return length）
+# Stat cache (pruning expired entries first keeps the count meaningful)
 get_image_cache_size <- function() {
+  policy <- .image_cache_policy()
+  .image_cache_prune(.IMAGE_CACHE_ITEM, policy, .image_cache_now(policy))
   ci <- tryCatch(get_cache_item(.IMAGE_CACHE_ITEM), error = function(e) NULL)
   length(ci)
 }
 
 get_image_transform_cache_size <- function() {
+  policy <- .image_cache_policy()
+  .image_cache_prune(.IMAGE_TRANSFORM_CACHE_ITEM, policy, .image_cache_now(policy))
   ci <- tryCatch(get_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM), error = function(e) NULL)
   length(ci)
 }
