@@ -1,3 +1,10 @@
+## ggimage 0.3.6
+
++ add `geom_image_repel()` for deterministic, offline image overlap avoidance, with configurable iteration, force, padding, and movement direction
++ support `width` and `height` aesthetics in `geom_image()`, including aspect-ratio-preserving one-sided sizing
++ improve image legend keys with point, rectangle, image, and blank key modes, including colour and alpha handling
++ clarify image coordinate semantics and add regression coverage for `hjust`, nudging, `coord_fixed()`, and full-panel images (2026-09-25, Fri)
+
 ## ggimage 0.3.5
 
 + use `magick::image_fx()` to contral transparency of images (2026-01-07, Thu, #61)
