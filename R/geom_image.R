@@ -151,6 +151,11 @@ GeomImage <- ggproto("GeomImage", Geom,
                              height,
                              nrow(data)
                          )
+                         image_fun_key <- if (use_cache) {
+                             image_fun_cache_key(image_fun)
+                         } else {
+                             NULL
+                         }
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
                               imageGrob(x = data$x[i],
@@ -162,6 +167,7 @@ GeomImage <- ggproto("GeomImage", Geom,
                                         angle = data$angle[i],
                                         adj = adjs[i],
                                         image_fun = image_fun,
+                                        image_fun_key = image_fun_key,
                                         hjust = hjust,
                                         by = by,
                                         asp = asp,
@@ -235,8 +241,15 @@ image_cache_key <- function(img) {
 }
 
 # generate transform key based on base_key and transform parameters
-image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NULL) {
-  image_fun_key <- if (is.null(image_fun)) "" else digest(image_fun)
+image_fun_cache_key <- function(image_fun) {
+  if (is.null(image_fun)) "" else digest(image_fun)
+}
+
+image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NULL,
+                                image_fun_key = NULL) {
+  if (is.null(image_fun_key)) {
+    image_fun_key <- image_fun_cache_key(image_fun)
+  }
   paste(base_key,
         if (is.null(angle) || is.na(angle)) 0 else angle,
         if (is.null(colour) || is.na(colour)) "" else as.character(colour),
@@ -305,7 +318,8 @@ apply_image_opacity <- function(img, opacity) {
                    channel = "alpha")
 }
 
-prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE) {
+prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE,
+                          image_fun_key = NULL) {
   tryCatch({
     if (is_invalid(img)) {
       warning("Invalid image path or object provided: ", paste(img, collapse=","))
@@ -343,9 +357,14 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
       return(NULL)
     }
 
-    # —— secondary cache（optional）：cache for angle/colour/opacity image —— #
-    tkey <- image_transform_key(img_key, angle, colour, opacity, image_fun)
-    transformed <- cache_get_transformed(tkey, use_cache)
+    # —— secondary cache（optional，cache for angle/colour/opacity image） —— #
+    tkey <- NULL
+    transformed <- NULL
+    if (use_cache) {
+      tkey <- image_transform_key(img_key, angle, colour, opacity, image_fun,
+                                  image_fun_key)
+      transformed <- cache_get_transformed(tkey, use_cache)
+    }
 
     if (is.null(transformed)) {
       # apply the available user function
@@ -392,22 +411,28 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
 ##' @importFrom yulab.utils get_cache_element update_cache_item rm_cache_item get_cache_item
 imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by,
                      asp=1, default.units='native', use_cache=TRUE,
-                     width = NA_real_, height = NA_real_) {
+                     width = NA_real_, height = NA_real_, image_fun_key = NULL) {
   if (is.na(img)) {
     return(zeroGrob())
   }
 
   # Use prepare_image for unified caching and transformation
-  cached_img <- prepare_image(img, colour, opacity, angle, image_fun, use_cache)
+  cached_img <- prepare_image(img, colour, opacity, angle, image_fun, use_cache,
+                              image_fun_key)
 
   if (is.null(cached_img)) {
     return(zeroGrob())
   }
 
-  asp <- getAR2(cached_img)/asp
-
   explicit_width <- length(width) == 1L && is.finite(width) && width > 0
   explicit_height <- length(height) == 1L && is.finite(height) && height > 0
+
+  ## A fully explicit box does not depend on the source image aspect ratio.
+  asp <- if (explicit_width && explicit_height) {
+    NULL
+  } else {
+    getAR2(cached_img) / asp
+  }
 
   if (explicit_width || explicit_height) {
     if (explicit_width && explicit_height) {
