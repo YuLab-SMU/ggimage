@@ -23,9 +23,10 @@
 ##'         (`force = 0.1`, `max.iter = 100`) leaves essentially no overlap.
 ##' }
 ##' Pairs of exactly coincident images are separated along the positive axis,
-##' which keeps the result reproducible. The cost is `O(n^2 * max.iter)` for
-##' `n` images; the layer is meant for the small numbers of images that are
-##' typical for image based annotations.
+##' which keeps the result reproducible. The cost is `O(n^2 * (max.iter + 256))`
+##' in the worst case; the final cleanup is hard-capped at 256 pair sweeps so
+##' dense inputs cannot make the cleanup grow with `n`. The layer is meant for
+##' the small numbers of images that are typical for image based annotations.
 ##'
 ##' Images are pushed away from each other only, they are **not** kept inside
 ##' the panel, and images are never re-ordered or removed. Images with
@@ -320,17 +321,26 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
     }
 
     ## Finish long runs with a small positive clearance. Short runs preserve
-    ## the force-dependent partial update used to tune the layout.
+    ## the force-dependent partial update used to tune the layout. The cleanup
+    ## is deliberately capped: a dense cluster can otherwise spend O(n^3)
+    ## time in the old n-scaled sweep even after the force iterations have
+    ## already converged. A fixed cap keeps the worst case deterministic while
+    ## retaining the existing pair order (and therefore the small-layout
+    ## behaviour).
     if (max.iter >= 10L && overlapping) {
         clearance <- 1e-4
-        for (cleanup in seq_len(max(100L, n * 100L))) {
+        overlap_tol <- 1e-12
+        cleanup_limit <- 256L
+        for (cleanup in seq_len(cleanup_limit)) {
             changed <- FALSE
+            max_overlap <- 0
             for (i in seq_len(n - 1L)) {
                 for (j in (i + 1L):n) {
                     ox <- (width[i] + width[j]) / 2 - abs(x[j] - x[i])
                     oy <- (height[i] + height[j]) / 2 - abs(y[j] - y[i])
                     if (!(ox > 0 && oy > 0)) next
                     changed <- TRUE
+                    max_overlap <- max(max_overlap, min(ox, oy))
                     sx <- if (x[j] - x[i] == 0) 1 else sign(x[j] - x[i])
                     sy <- if (y[j] - y[i] == 0) 1 else sign(y[j] - y[i])
                     if (move_x) {
@@ -345,7 +355,7 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
                     }
                 }
             }
-            if (!changed) break
+            if (!changed || max_overlap <= overlap_tol) break
         }
     }
 
