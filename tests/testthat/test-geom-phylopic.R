@@ -30,6 +30,95 @@ test_that("missing response fields are treated as no match", {
     expect_true(is.na(ggimage:::phylopic_uid_item("missing")))
 })
 
+test_that("duplicate names resolve once and stay aligned", {
+    uid <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+    calls <- character()
+    ggimage:::.phylopic_uid_cache_clear()
+    local_mocked_bindings(
+        .phylopic_from_json = function(url) {
+            calls <<- c(calls, url)
+            if (!grepl("embed_items=true", url, fixed = TRUE)) {
+                list(build = 558L)
+            } else {
+                list(`_embedded` = list(items = list(
+                    `_links` = list(vectorFile = list(href = paste0(
+                        "https://images.phylopic.org/images/", uid,
+                        "/vector.svg"
+                    )))
+                )))
+            }
+        },
+        .package = "ggimage"
+    )
+
+    input <- c(first = "Canis lupus", second = "canis lupus",
+               missing = NA_character_, third = "Canis lupus")
+    result <- ggimage:::phylopic(input)
+
+    expect_identical(names(result), names(input))
+    expect_identical(unname(result), c(
+        paste0("https://images.phylopic.org/images/", uid, "/vector.svg"),
+        paste0("https://images.phylopic.org/images/", uid, "/vector.svg"),
+        NA_character_,
+        paste0("https://images.phylopic.org/images/", uid, "/vector.svg")
+    ))
+    expect_length(calls, 2L)
+    ggimage:::.phylopic_uid_cache_clear()
+})
+
+test_that("successful UID lookups are memoized per seed", {
+    uid <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+    calls <- character()
+    ggimage:::.phylopic_uid_cache_clear()
+    local_mocked_bindings(
+        .phylopic_from_json = function(url) {
+            calls <<- c(calls, url)
+            if (!grepl("embed_items=true", url, fixed = TRUE)) {
+                list(build = 558L)
+            } else {
+                list(`_embedded` = list(items = list(
+                    `_links` = list(vectorFile = list(href = paste0(
+                        "https://images.phylopic.org/images/", uid,
+                        "/vector.svg"
+                    )))
+                )))
+            }
+        },
+        .package = "ggimage"
+    )
+
+    first <- ggimage::phylopic_uid("Canis lupus")
+    second <- ggimage::phylopic_uid("canis lupus")
+
+    expect_identical(first$uid, second$uid)
+    expect_length(calls, 2L)
+    ggimage:::.phylopic_uid_cache_clear()
+})
+
+test_that("download_phylopic skips non-empty existing duplicate targets", {
+    tmp <- tempfile("ggimage-phylopic-")
+    dir.create(tmp)
+    on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+    id <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+    dir.create(file.path(tmp, id))
+    source <- file.path(tmp, "source.svg")
+    writeLines("source", source)
+    local_mocked_bindings(
+        phylopic = function(id) {
+            url <- rep(paste0("file://", source), length(id))
+            names(url) <- names(id)
+            url
+        },
+        .package = "ggimage"
+    )
+
+    result <- ggimage::download_phylopic(c(id, id), destdir = tmp)
+
+    target <- paste0(tmp, "/", id, "source.svg")
+    expect_identical(unname(result), c(target, target))
+    expect_identical(readLines(target), "source")
+})
+
 test_that("embedded vector links are extracted without network access", {
     uid <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
     response <- list(
