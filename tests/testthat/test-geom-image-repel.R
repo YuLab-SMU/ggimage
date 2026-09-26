@@ -436,7 +436,6 @@ test_that("size = Inf does not crash the repulsion layout", {
     expect_true(all(is.finite(layout$y)))
     expect_no_error(ggplot2::ggplot_build(p))
 })
-
 test_that("the layout is deterministic: same input, same output", {
     skip_without_repel_api()
 
@@ -459,4 +458,38 @@ test_that("the layout is deterministic: same input, same output", {
                                    max.iter = 50, use_cache = FALSE)))
     expect_equal(sort(shuffled_layout$x), sort(first$x), tolerance = 1e-6)
     expect_equal(sort(shuffled_layout$y), sort(first$y), tolerance = 1e-6)
+})
+
+
+test_that("large dense layouts stay finite and deterministic", {
+    skip_without_repel_api()
+
+    solve <- function(n, direction = "both") {
+        ggimage:::repel_boxes(
+            x = rep(0.5, n), y = rep(0.5, n),
+            width = rep(0.1, n), height = rep(0.1, n),
+            max.iter = 100, force = 0.1, direction = direction
+        )
+    }
+
+    ## These sizes exercise the cleanup cap without asserting wall-clock time.
+    ## The solver must return a reproducible finite layout rather than scaling
+    ## cleanup sweeps linearly with n.
+    for (n in c(50L, 100L)) {
+        first <- solve(n)
+        second <- solve(n)
+        expect_equal(length(first$x), n)
+        expect_equal(length(first$y), n)
+        expect_true(all(is.finite(first$x)) && all(is.finite(first$y)))
+        expect_equal(first, second)
+        expect_gt(max(first$x) - min(first$x), 0)
+        expect_gt(max(first$y) - min(first$y), 0)
+    }
+
+    ## Restricting movement to one axis remains an invariant at this scale.
+    x_only <- solve(50L, direction = "x")
+    y_only <- solve(50L, direction = "y")
+    expect_equal(x_only$y, rep(0.5, 50L))
+    expect_equal(y_only$x, rep(0.5, 50L))
+    expect_true(all(is.finite(x_only$x)) && all(is.finite(y_only$y)))
 })

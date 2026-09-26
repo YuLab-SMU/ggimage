@@ -72,7 +72,9 @@ Draw images with deterministic basic overlap avoidance.
 \code{geom_image_repel()} uses the same image, colour, alpha, angle, size,
 width, height, coordinate, and nudging parameters as \code{geom_image()}. It
 iteratively moves overlapping image centres apart without downloading data or
-using an external repulsion package. Images are not clipped to the panel and
+using an external repulsion package. The final cleanup is hard-capped at 256
+pair sweeps, giving worst-case complexity \code{O(n^2 * (max.iter + 256))}.
+Images are not clipped to the panel and
 images with \code{size = Inf} are not included in the repulsion calculation.
 }
 \examples{
