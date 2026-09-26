@@ -16,6 +16,9 @@ Rscript bench/bench-geom-image.R
 Rscript bench/bench-geom-image-repel.R
 Rscript bench/bench-repel-solver.R
 Rscript bench/bench-image-cache.R
+Rscript bench/bench-repel-broadphase.R
+Rscript bench/bench-image-utils.R
+Rscript bench/bench-geom-subview.R
 ```
 
 All scripts require `ggplot2` and the locally installed `ggimage`. The
@@ -54,6 +57,20 @@ result focuses on layout cost after image preparation.
 without ggplot2, image decoding, or grob construction. It uses the same four
 sizes, dense/sparse layouts, and iteration limits to isolate solver growth from
 rendering overhead.
+
+`bench-repel-broadphase.R` is the third-phase scaling run. It uses larger,
+deterministic explicit-box lattices with `max.iter = 1` to emphasize sparse
+versus dense candidate discovery while avoiding image preparation and grob
+construction. It is useful both for the current pairwise implementation and
+for comparing a future broad-phase implementation.
+
+`bench-image-utils.R` times repeated local `draw_key_image()` calls for each
+legend key type and repeated `image_read2()` calls with and without trimming.
+The `calls=` values come from `GGIMAGE_BENCH_SIZES`.
+
+`bench-geom-subview.R` repeatedly builds a `ggplotGrob()` containing small,
+local ggplot subviews at increasing counts. It is a practical rendering signal
+for `geom_subview()` without external assets.
 
 `bench-image-cache.R` is a non-timing smoke check for cache growth and policy.
 It creates local copies of the bundled image, checks that repeated paths reuse
