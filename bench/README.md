@@ -14,11 +14,13 @@ workflow), then run the scripts from the repository root:
 R CMD INSTALL .
 Rscript bench/bench-geom-image.R
 Rscript bench/bench-geom-image-repel.R
+Rscript bench/bench-repel-solver.R
+Rscript bench/bench-image-cache.R
 ```
 
-Both scripts require `ggplot2` and the locally installed `ggimage`. The
+All scripts require `ggplot2` and the locally installed `ggimage`. The
 [`bench`](https://cran.r-project.org/package=bench) package is optional. When it
-is unavailable, the scripts use base R's `system.time()` and report
+is unavailable, the timed scripts use base R's `system.time()` and report
 `backend = "base::system.time"`; install `bench` when you need more stable
 iteration statistics:
 
@@ -43,10 +45,22 @@ paths, `use_cache = TRUE` and `FALSE`, and size-based dimensions with explicit
 `width`/`height`. “Unique” means unique temporary local paths; the files are
 copies of the bundled R logo, so no network access is involved.
 
-`bench-geom-image-repel.R` builds a `ggplotGrob()` for
-`geom_image_repel()` at `n = 10, 50, 100, 250`, using deterministic dense and
-sparse layouts and `max.iter = 1, 10, 100`. The image is local and caching is
-left enabled so the result focuses on layout cost after image preparation.
+`bench-geom-image-repel.R` builds a `ggplotGrob()` for `geom_image_repel()` at
+`n = 10, 50, 100, 250`, using deterministic dense and sparse layouts and
+`max.iter = 1, 10, 100`. The image is local and caching is left enabled so the
+result focuses on layout cost after image preparation.
+
+`bench-repel-solver.R` calls the internal pairwise repel solver directly,
+without ggplot2, image decoding, or grob construction. It uses the same four
+sizes, dense/sparse layouts, and iteration limits to isolate solver growth from
+rendering overhead.
+
+`bench-image-cache.R` is a non-timing smoke check for cache growth and policy.
+It creates local copies of the bundled image, checks that repeated paths reuse
+one base/transform entry, unique paths grow both counters with `n`, and
+`use_cache = FALSE` leaves both counters empty. It reports internal cache
+statistics and fails only when those deterministic policy invariants do not
+hold.
 
 ## Interpreting results
 
