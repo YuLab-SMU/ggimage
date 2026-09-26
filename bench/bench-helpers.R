@@ -121,7 +121,10 @@ source_file_dir <- function() {
     args <- commandArgs(trailingOnly = FALSE)
     file_arg <- args[grepl("^--file=", args)]
     if (length(file_arg)) {
-        return(dirname(normalizePath(sub("^--file=", "", file_arg[[1]]))))
+        file_path <- sub("^--file=", "", file_arg[[1]])
+        if (nzchar(file_path) && !identical(file_path, "-")) {
+            return(dirname(normalizePath(file_path)))
+        }
     }
     getwd()
 }
