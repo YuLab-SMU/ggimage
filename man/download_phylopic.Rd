@@ -20,11 +20,11 @@ download_phylopic(
 
 \item{...}{additional parameters passed to download.file}
 
-\item{reuse}{whether to reuse existing non-empty regular files.}
+\item{reuse}{whether to reuse existing non-empty regular files}
 
-\item{lock_timeout}{maximum seconds to wait for a concurrent download lock.}
+\item{lock_timeout}{maximum seconds to wait for a concurrent download lock}
 
-\item{lock_poll}{seconds between lock acquisition attempts.}
+\item{lock_poll}{seconds between lock acquisition attempts}
 }
 \value{
 a character string (or vector) with downloaded file path

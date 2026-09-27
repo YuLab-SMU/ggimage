@@ -45,20 +45,26 @@ geom_image_repel(
 
 \item{use_cache}{logical, whether to use image caching for better performance}
 
-\item{width, height}{Image width and height in native panel units, following
-\code{geom_image()} behavior. If only one is supplied, the other is derived
-from the image ratio.}
+\item{width, height}{Image width and height in native panel units, see
+\code{\link[=geom_image]{geom_image()}}. Only one of them keeps the aspect ratio of the image.}
 
-\item{max.iter}{non-negative whole number of displacement iterations. Zero
-keeps the original coordinates.}
+\item{max.iter}{non-negative whole number of displacement iterations.
+\code{max.iter = 0} keeps the original coordinates (and \code{force = 0} does the
+same).}
 
-\item{force}{non-negative fraction of the current overlap resolved per
-iteration. Larger values converge faster but make larger moves.}
+\item{force}{non-negative number, the fraction of the current overlap that
+is resolved in one iteration (each image of an overlapping pair moves by
+\code{force * overlap / 2}). Larger values converge faster but produce bigger
+jumps.}
 
-\item{box.padding}{non-negative extra space added around every image box.}
+\item{box.padding}{non-negative number, extra space added around every
+image box, in the same units as \code{width}/\code{height}. Repelled images are
+kept at least \code{box.padding} apart.}
 
-\item{direction}{one of \code{"both"}, \code{"x"}, or \code{"y"}; the axes
-along which images may move.}
+\item{direction}{one of 'both', 'x' or 'y', the axis (or axes) along which
+images are allowed to move. Overlap is always detected on both axes;
+\code{direction} only restricts the displacement, so \code{direction = "x"} slides
+overlapping images horizontally until they no longer overlap.}
 
 \item{...}{additional parameters}
 }
@@ -66,26 +72,70 @@ along which images may move.}
 geom layer
 }
 \description{
-Draw images with deterministic basic overlap avoidance.
+geom layer for visualizing image files with basic overlap avoidance
 }
 \details{
-\code{geom_image_repel()} uses the same image, colour, alpha, angle, size,
-width, height, coordinate, and nudging parameters as \code{geom_image()}. It
-iteratively moves overlapping image centres apart without downloading data or
-using an external repulsion package. The final cleanup is hard-capped at 256
-pair sweeps, giving worst-case complexity \code{O(n^2 * (max.iter + 256))}.
-Images are not clipped to the panel and
-images with \code{size = Inf} are not included in the repulsion calculation.
+\code{geom_image_repel()} draws images like \code{\link[=geom_image]{geom_image()}}, but moves images
+that overlap each other apart before drawing them. The displacement is
+computed offline (no network, no rendering, no \code{ggrepel} dependency) from
+the bounding boxes of the images, so the result is deterministic: the same
+plot always produces the same layout.
+
+The algorithm works on the \emph{centres} of the images, after they have been
+nudged (\code{nudge_x}/\code{nudge_y}) and transformed by the coordinate system
+(this is the space in which \code{width}/\code{height} are expressed, i.e. fractions
+of the panel):
+\enumerate{
+\item each image gets an axis aligned box of size
+\code{width + box.padding} by \code{height + box.padding};
+\item for every pair of boxes that overlap on \strong{both} axes, the two
+images are pushed apart along the allowed \code{direction}, by
+\code{force * overlap / 2} each, away from each other;
+\item step 2 is repeated at most \code{max.iter} times, stopping early once no
+pair overlaps. The residual overlap after \code{max.iter} iterations is
+about \code{(1 - force)^max.iter} of the initial one, so the default
+(\code{force = 0.1}, \code{max.iter = 100}) leaves essentially no overlap.
+}
+which keeps the result reproducible. For large inputs, an adaptive uniform-grid
+broad phase estimates candidate density before each sweep: sparse layouts use
+one immutable grid, while dense layouts use the full scan when grid lookup and
+candidate handling would cost more than checking every pair. If a sparse-grid
+sweep moves any image, its candidate set is no longer current; the remainder
+of that sweep conservatively falls back to the full scan. The grid costs
+\code{O(n + k)} per sweep for \code{k} candidate checks (with \code{O(n^2)} worst-case dense
+behaviour), while small inputs retain the full pair scan. The cleanup is
+hard-capped at 256 sweeps so dense inputs cannot make cleanup grow with \code{n}
+beyond that fixed number of sweeps.
+
+Images are pushed away from each other only, they are \strong{not} kept inside
+the panel, and images are never re-ordered or removed. Images with
+\code{size = Inf} (e.g. the background image added by \code{\link[=geom_bgimage]{geom_bgimage()}}) and
+images that cannot be loaded are ignored by the repulsion: they keep their
+original position and do not push the other images around.
+
+The width of an image that is sized through \code{size}/\code{by} (instead of an
+explicit \code{width}) is derived by \code{grid} from its height and from the
+physical aspect of the panel. \code{geom_image_repel()} uses the aspect
+reported by the coordinate system (\code{coord_fixed()}, exact) and assumes a
+square panel otherwise, which over-estimates the width of a panel that is
+wider than it is high. Pass explicit \code{width}/\code{height} when the exact box
+matters.
 }
 \examples{
-\dontrun{
-library(ggplot2)
-library(ggimage)
-d <- data.frame(x = c(.5, .52, .51), y = c(.5, .51, .49),
+library("ggplot2")
+library("ggimage")
+d <- data.frame(x = c(0.5, 0.52, 0.51),
+                y = c(0.5, 0.51, 0.49),
                 image = system.file("extdata/Rlogo.png", package = "ggimage"))
+## overlapping images are pushed apart
 ggplot(d, aes(x, y, image = image)) +
-  geom_image_repel(width = .1, box.padding = .01)
-}
+    geom_image_repel(width = 0.1, box.padding = 0.01)
+## max.iter = 0 keeps the original coordinates
+ggplot(d, aes(x, y, image = image)) +
+    geom_image_repel(width = 0.1, max.iter = 0)
+## only move them apart horizontally
+ggplot(d, aes(x, y, image = image)) +
+    geom_image_repel(width = 0.1, direction = "x")
 }
 \author{
 Guangchuang Yu

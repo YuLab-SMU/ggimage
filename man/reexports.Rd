@@ -12,6 +12,6 @@ These objects are imported from other packages. Follow the links
 below to see their documentation.
 
 \describe{
-  \item{ggplotify}{\code{\link[ggplotify]{as.ggplot}}, \code{\link[ggplotify:as-grob]{as.grob}}}
+  \item{ggplotify}{\code{\link[ggplotify:as.ggplot]{as.ggplot()}}, \code{\link[ggplotify:as.grob]{as.grob()}}}
 }}
 
