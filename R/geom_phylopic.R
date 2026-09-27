@@ -26,7 +26,11 @@ geom_phylopic <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
 ##' @importFrom utils download.file
 ##' @export
 ##' @author Guangchuang Yu
-download_phylopic <- function(id, destdir = ".", ...) {
+download_phylopic <- function(id, destdir = ".", ..., reuse = TRUE,
+                              lock_timeout = getOption(
+                                  "ggimage.phylopic_lock_timeout", 30),
+                              lock_poll = getOption(
+                                  "ggimage.phylopic_lock_poll", 0.05)) {
     url <- phylopic(id)
     n <- basename(url)
     destfile <- rep(NA_character_, length(url))
@@ -34,27 +38,94 @@ download_phylopic <- function(id, destdir = ".", ...) {
 
     valid <- !is.na(url) & nzchar(url)
     destfile[valid] <- paste0(destdir, '/', id[valid], n[valid])
+    pending <- which(valid)
+    if (!length(pending)) return(invisible(destfile))
 
-    ## A non-empty regular file is sufficient to avoid downloading the same
-    ## asset again.  Keep the check deliberately conservative: empty files and
-    ## directories are retried, while download errors retain their usual
-    ## behavior.
-    existing <- rep(FALSE, length(destfile))
-    existing[valid] <- file.exists(destfile[valid])
-    if (any(existing)) {
-        info <- file.info(destfile[existing])
-        existing[existing] <- !is.na(info$size) & info$size > 0 &
-            !is.na(info$isdir) & !info$isdir
-    }
+    reuse <- isTRUE(reuse)
+    lock_timeout <- suppressWarnings(as.numeric(lock_timeout)[1L])
+    if (length(lock_timeout) != 1L || is.na(lock_timeout) ||
+        !is.finite(lock_timeout) || lock_timeout < 0) lock_timeout <- 30
+    lock_timeout <- min(lock_timeout, 300)
+    lock_poll <- suppressWarnings(as.numeric(lock_poll)[1L])
+    if (length(lock_poll) != 1L || is.na(lock_poll) ||
+        !is.finite(lock_poll) || lock_poll <= 0) lock_poll <- 0.05
+    lock_poll <- min(lock_poll, 1)
 
-    pending <- which(valid & !existing)
     ## Duplicate input IDs can point to the same destination.  Download each
     ## destination at most once, without introducing parallel network calls.
     pending <- pending[!duplicated(destfile[pending])]
     for (i in pending) {
-        utils::download.file(url[i], destfile[i], ...)
+        target <- destfile[[i]]
+        parent <- dirname(target)
+        if (!dir.exists(parent)) {
+            stop("Phylopic download directory does not exist: ", parent,
+                 call. = FALSE)
+        }
+        lockdir <- paste0(target, ".lock")
+        acquired <- .phylopic_lock_acquire(lockdir, lock_timeout, lock_poll)
+        if (!acquired) {
+            if (reuse && .phylopic_regular_file(target)) next
+            stop("timed out waiting for Phylopic download lock: ", target,
+                 call. = FALSE)
+        }
+
+        tryCatch({
+            ## Check again after acquiring the lock.  A peer may have completed
+            ## the file while this call was waiting.
+            if (reuse && .phylopic_regular_file(target)) next
+            if (file.exists(target) && isTRUE(file.info(target)$isdir)) {
+                stop("Phylopic download target is a directory: ", target,
+                     call. = FALSE)
+            }
+
+            temp <- tempfile(
+                pattern = paste0(".", basename(target), "-"),
+                tmpdir = parent
+            )
+            on.exit(unlink(temp, force = TRUE), add = TRUE)
+            .phylopic_download(url[[i]], temp, ...)
+            if (!.phylopic_regular_file(temp)) {
+                stop("Phylopic download did not produce a non-empty file: ",
+                     target, call. = FALSE)
+            }
+            ## temp and target share a directory, so rename is atomic on the
+            ## supported filesystems.  No caller can observe a partial target.
+            if (!file.rename(temp, target)) {
+                stop("could not atomically install Phylopic download: ", target,
+                     call. = FALSE)
+            }
+        }, finally = {
+            unlink(lockdir, recursive = TRUE, force = TRUE)
+        })
     }
     invisible(destfile)
+}
+
+.phylopic_regular_file <- function(path) {
+    if (length(path) != 1L || is.na(path) || !file.exists(path)) {
+        return(FALSE)
+    }
+    info <- file.info(path)
+    isTRUE(!is.na(info$size) && info$size > 0 &&
+           !is.na(info$isdir) && !info$isdir)
+}
+
+.phylopic_lock_acquire <- function(lockdir, timeout, poll) {
+    if (dir.create(lockdir, showWarnings = FALSE, recursive = FALSE)) {
+        return(TRUE)
+    }
+    started <- as.numeric(Sys.time())
+    repeat {
+        if (dir.create(lockdir, showWarnings = FALSE, recursive = FALSE)) {
+            return(TRUE)
+        }
+        if (as.numeric(Sys.time()) - started >= timeout) return(FALSE)
+        Sys.sleep(poll)
+    }
+}
+
+.phylopic_download <- function(url, destfile, ...) {
+    utils::download.file(url, destfile, ...)
 }
 
 phylopic <- function(id) {

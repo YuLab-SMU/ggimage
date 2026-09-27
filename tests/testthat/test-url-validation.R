@@ -94,6 +94,74 @@ test_that("url.exists returns success after a bounded 502 retry sequence", {
     expect_identical(calls, 3L)
 })
 
+test_that("url.exists caches successful default requests across calls", {
+    calls <- 0L
+    now <- 100
+    request <- function(url, timeout, ...) {
+        calls <<- calls + 1L
+        200L
+    }
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 10, capacity = 2,
+                                 clock = function() now)
+    )
+    local_mocked_bindings(.url_request = request, .package = "ggimage")
+    ggimage:::.url_cache_clear()
+    on.exit(ggimage:::.url_cache_clear(), add = TRUE)
+
+    expect_true(ggimage:::url.exists("https://example.invalid/cached.png"))
+    expect_true(ggimage:::url.exists("https://example.invalid/cached.png"))
+    expect_identical(calls, 1L)
+
+    now <- 111
+    expect_true(ggimage:::url.exists("https://example.invalid/cached.png"))
+    expect_identical(calls, 2L)
+})
+
+test_that("url validation cache evicts by bounded capacity", {
+    calls <- character()
+    request <- function(url, timeout, ...) {
+        calls <<- c(calls, url)
+        200L
+    }
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 100, capacity = 2,
+                                 clock = function() 100)
+    )
+    local_mocked_bindings(.url_request = request, .package = "ggimage")
+    ggimage:::.url_cache_clear()
+    on.exit(ggimage:::.url_cache_clear(), add = TRUE)
+
+    a <- "https://example.invalid/a.png"
+    b <- "https://example.invalid/b.png"
+    c <- "https://example.invalid/c.png"
+    expect_true(ggimage:::url.exists(a))
+    expect_true(ggimage:::url.exists(b))
+    expect_true(ggimage:::url.exists(c))
+    expect_true(ggimage:::url.exists(a))
+    expect_identical(calls, c(a, b, c, a))
+})
+
+test_that("failed URL validation is not sticky in the cache", {
+    calls <- 0L
+    request <- function(url, timeout, ...) {
+        calls <<- calls + 1L
+        if (calls == 1L) 500L else 200L
+    }
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 100, capacity = 2,
+                                 clock = function() 100)
+    )
+    local_mocked_bindings(.url_request = request, .package = "ggimage")
+    ggimage:::.url_cache_clear()
+    on.exit(ggimage:::.url_cache_clear(), add = TRUE)
+
+    target <- "https://example.invalid/transient.png"
+    expect_false(ggimage:::url.exists(target))
+    expect_true(ggimage:::url.exists(target))
+    expect_identical(calls, 2L)
+})
+
 test_that("remote wrappers share deduplicating URL validation", {
     checked <- character()
     exists <- function(url, ...) {
