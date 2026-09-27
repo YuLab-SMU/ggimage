@@ -22,6 +22,9 @@ geom_phylopic <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
 ##' @param id phylopic id
 ##' @param destdir directory where the downloaded images are to be saved.
 ##' @param ... additional parameters passed to download.file
+##' @param reuse whether to reuse existing non-empty regular files
+##' @param lock_timeout maximum seconds to wait for a concurrent download lock
+##' @param lock_poll seconds between lock acquisition attempts
 ##' @return a character string (or vector) with downloaded file path
 ##' @importFrom utils download.file
 ##' @export

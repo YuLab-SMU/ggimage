@@ -460,7 +460,7 @@ image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NU
 }
 
 .image_cache_estimate_bytes <- function(value) {
-  estimate <- suppressWarnings(as.numeric(object.size(value)))
+  estimate <- suppressWarnings(as.numeric(utils::object.size(value)))
   if (length(estimate) != 1L || !is.finite(estimate) || estimate < 0)
     estimate <- 0
   if (methods::is(value, "magick-image")) {

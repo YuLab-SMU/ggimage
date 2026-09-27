@@ -4,7 +4,14 @@
 \alias{download_phylopic}
 \title{download_phylopic}
 \usage{
-download_phylopic(id, destdir = ".", ...)
+download_phylopic(
+  id,
+  destdir = ".",
+  ...,
+  reuse = TRUE,
+  lock_timeout = getOption("ggimage.phylopic_lock_timeout", 30),
+  lock_poll = getOption("ggimage.phylopic_lock_poll", 0.05)
+)
 }
 \arguments{
 \item{id}{phylopic id}
@@ -12,6 +19,12 @@ download_phylopic(id, destdir = ".", ...)
 \item{destdir}{directory where the downloaded images are to be saved.}
 
 \item{...}{additional parameters passed to download.file}
+
+\item{reuse}{whether to reuse existing non-empty regular files.}
+
+\item{lock_timeout}{maximum seconds to wait for a concurrent download lock.}
+
+\item{lock_poll}{seconds between lock acquisition attempts.}
 }
 \value{
 a character string (or vector) with downloaded file path
