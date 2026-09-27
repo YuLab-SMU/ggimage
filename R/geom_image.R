@@ -156,6 +156,15 @@ GeomImage <- ggproto("GeomImage", Geom,
                          } else {
                              NULL
                          }
+                         prepared_images <- prepare_image_batch(
+                             img = data$image,
+                             colour = if ("colour" %in% names(data)) data$colour else NULL,
+                             opacity = if ("alpha" %in% names(data)) data$alpha else 1,
+                             angle = if ("angle" %in% names(data)) data$angle else 0,
+                             image_fun = image_fun,
+                             use_cache = use_cache,
+                             image_fun_key = image_fun_key
+                         )
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
                               imageGrob(x = data$x[i],
@@ -173,7 +182,9 @@ GeomImage <- ggproto("GeomImage", Geom,
                                         asp = asp,
                                         use_cache = use_cache,
                                         width = widths[i],
-                                        height = heights[i]
+                                        height = heights[i],
+                                        prepared_image = prepared_images[[i]],
+                                        prepared = TRUE
                               )
                              })
                          ggname("geom_image", gTree(children = do.call(gList, grobs)))
@@ -650,6 +661,75 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
   })
 }
 
+# Prepare each distinct image transform once within one panel draw.  This memo
+# is intentionally local to the call: it supplements, but does not alter, the
+# process-global image caches or their use_cache semantics.
+prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
+                                image_fun = NULL, use_cache = TRUE,
+                                image_fun_key = NULL) {
+  n <- max(length(img), length(colour), length(opacity), length(angle), 0L)
+  if (n == 0L) return(list())
+
+  recycle <- function(value, default) {
+    if (is.null(value) || length(value) == 0L) {
+      rep(default, n)
+    } else {
+      value[rep(seq_along(value), length.out = n)]
+    }
+  }
+  img <- recycle(img, NA_character_)
+  colour <- recycle(colour, NA_character_)
+  opacity <- recycle(opacity, 1)
+  angle <- recycle(angle, 0)
+
+  if (is.null(image_fun_key)) image_fun_key <- image_fun_cache_key(image_fun)
+  memo <- new.env(hash = TRUE, parent = emptyenv())
+  path_keys <- new.env(hash = TRUE, parent = emptyenv())
+  prepared <- vector("list", n)
+
+  image_key <- function(value) {
+    ## Character paths are common and can be keyed without digesting every
+    ## row. Normalize each distinct path at most once in this panel.
+    if (is.character(value) && length(value) == 1L) {
+      path <- value[[1L]]
+      path_id <- if (is.na(path)) "<NA>" else path
+      if (exists(path_id, envir = path_keys, inherits = FALSE)) {
+        return(get(path_id, envir = path_keys, inherits = FALSE))
+      }
+      key <- tryCatch(
+        normalizePath(path, winslash = "/", mustWork = FALSE),
+        error = function(e) path
+      )
+      key <- paste0("character:", key)
+      assign(path_id, key, envir = path_keys)
+      return(key)
+    }
+    tryCatch(
+      paste0("object:", digest(value)),
+      error = function(e) paste0("object-error:", typeof(value), ":", length(value))
+    )
+  }
+
+  for (i in seq_len(n)) {
+    key <- image_transform_key(
+      image_key(img[i]), angle[i], colour[i], opacity[i],
+      image_fun = image_fun, image_fun_key = image_fun_key
+    )
+    if (exists(key, envir = memo, inherits = FALSE)) {
+      prepared[[i]] <- get(key, envir = memo, inherits = FALSE)
+      next
+    }
+    value <- prepare_image(
+      img = img[i], colour = colour[i], opacity = opacity[i],
+      angle = angle[i], image_fun = image_fun, use_cache = use_cache,
+      image_fun_key = if (use_cache) image_fun_key else NULL
+    )
+    assign(key, value, envir = memo)
+    prepared[[i]] <- value
+  }
+  prepared
+}
+
 #### caching mechanism for images end ####
 
 ##' @importFrom magick image_read
@@ -666,14 +746,21 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
 ##' @importFrom yulab.utils get_cache_element update_cache_item rm_cache_item get_cache_item
 imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by,
                      asp=1, default.units='native', use_cache=TRUE,
-                     width = NA_real_, height = NA_real_, image_fun_key = NULL) {
+                     width = NA_real_, height = NA_real_, image_fun_key = NULL,
+                     prepared_image = NULL, prepared = FALSE) {
   if (is.na(img)) {
     return(zeroGrob())
   }
 
-  # Use prepare_image for unified caching and transformation
-  cached_img <- prepare_image(img, colour, opacity, angle, image_fun, use_cache,
-                              image_fun_key)
+  # Use the panel-local prepared value when supplied; every call still builds
+  # a fresh raster grob so row-specific geometry and interactive attributes do
+  # not share mutable grob state.
+  cached_img <- if (isTRUE(prepared)) {
+    prepared_image
+  } else {
+    prepare_image(img, colour, opacity, angle, image_fun, use_cache,
+                  image_fun_key)
+  }
 
   if (is.null(cached_img)) {
     return(zeroGrob())
