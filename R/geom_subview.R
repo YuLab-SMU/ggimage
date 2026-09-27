@@ -1,27 +1,4 @@
-##' subview geom
-##'
-##'
-##' @title geom_subview
-##' @param mapping aes mapping, requires 'x', 'y' and 'subview'
-##' @param data data frame
-##' @param width width
-##' @param height height
-##' @param x x position of subview. This parameter works if mapping and data is not provided
-##' @param y y position of subview. This parameter works if mapping and data is not provided
-##' @param subview subview to plot, if not provided in data and specify by mapping
-##' @return layer
-##' @importFrom ggplot2 annotation_custom
-##' @importFrom ggplot2 aes_
-##' @importFrom tibble as_tibble
-##' @importFrom tibble tibble
-##' @importFrom ggplotify as.grob
-##' @importFrom ggfun get_aes_var
-## @importFrom grid convertUnit
-## @importFrom grid viewport
-## @importFrom grid pushViewport
-##' @export
-##' @author guangchuang yu
-## Convert only stable, local subview objects.  Functions/formulas and other
+## Convert only stable, local subview objects. Functions/formulas and other
 ## classes may have side effects when printed, so leave those uncached.
 .subview_cache_key <- function(subview) {
     if (!inherits(subview, c("grob", "ggplot", "magick-image"))) {
@@ -49,6 +26,30 @@
         grob
     }
 }
+
+##' subview geom
+##'
+##'
+##' @title geom_subview
+##' @param mapping aes mapping, requires 'x', 'y' and 'subview'
+##' @param data data frame
+##' @param width width
+##' @param height height
+##' @param x x position of subview. This parameter works if mapping and data is not provided
+##' @param y y position of subview. This parameter works if mapping and data is not provided
+##' @param subview subview to plot, if not provided in data and specify by mapping
+##' @return layer
+##' @importFrom ggplot2 annotation_custom
+##' @importFrom ggplot2 aes_
+##' @importFrom tibble as_tibble
+##' @importFrom tibble tibble
+##' @importFrom ggplotify as.grob
+##' @importFrom ggfun get_aes_var
+## @importFrom grid convertUnit
+## @importFrom grid viewport
+## @importFrom grid pushViewport
+##' @export
+##' @author guangchuang yu
 
 geom_subview <- function(mapping = NULL, data = NULL, width=.1, height=.1, x = NULL, y = NULL, subview = NULL) {
     ## can't support `aes(x, y, subview=subview)` as ggplot2 will throw:
