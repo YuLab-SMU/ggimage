@@ -22,13 +22,16 @@
 ##'         about `(1 - force)^max.iter` of the initial one, so the default
 ##'         (`force = 0.1`, `max.iter = 100`) leaves essentially no overlap.
 ##' }
-##' which keeps the result reproducible. For large inputs, a mutable uniform-grid
-##' broad phase visits only boxes sharing one of the query box's cells; sparse
-##' layouts therefore avoid scanning every pair. The grid costs `O(n + k)` per
-##' sweep for `k` candidate checks (with `O(n^2)` worst-case dense behaviour),
-##' while small inputs retain the full pair scan. The cleanup is hard-capped at
-##' 256 sweeps so dense inputs cannot make cleanup grow with `n` beyond that
-##' fixed number of sweeps.
+##' which keeps the result reproducible. For large inputs, an adaptive uniform-grid
+##' broad phase estimates candidate density before each sweep: sparse layouts use
+##' one immutable grid, while dense layouts use the full scan when grid lookup and
+##' candidate handling would cost more than checking every pair. If a sparse-grid
+##' sweep moves any image, its candidate set is no longer current; the remainder
+##' of that sweep conservatively falls back to the full scan. The grid costs
+##' `O(n + k)` per sweep for `k` candidate checks (with `O(n^2)` worst-case dense
+##' behaviour), while small inputs retain the full pair scan. The cleanup is
+##' hard-capped at 256 sweeps so dense inputs cannot make cleanup grow with `n`
+##' beyond that fixed number of sweeps.
 ##'
 ##' Images are pushed away from each other only, they are **not** kept inside
 ##' the panel, and images are never re-ordered or removed. Images with
@@ -284,10 +287,11 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
 }
 
 
-## A mutable uniform grid used as a conservative broad phase. The grid is
-## rebuilt for each solver sweep and updated after every movement. Updating it
-## while scanning j in row order is important: a movement made by an earlier
-## pair can create a later overlap, just as it can in the historical full scan.
+## A conservative uniform grid for the broad phase. The grid is built once
+## from the positions at the beginning of a sweep. If any pair moves, the
+## candidate set is stale and the sweep falls back to the full scan; this is
+## conservative because every pair that can overlap at the start is present in
+## the grid, while all pairs after the first movement are checked explicitly.
 repel_grid_state <- function(x, y, width, height) {
     n <- length(x)
     positive_size <- c(width[is.finite(width) & width > 0],
@@ -306,61 +310,56 @@ repel_grid_state <- function(x, y, width, height) {
     }
 
     cells <- new.env(hash = TRUE, parent = emptyenv())
-    state <- new.env(parent = emptyenv())
-    state$members <- vector("list", n)
-    state$x <- x
-    state$y <- y
-
     cell_range <- function(lo, hi) {
         seq.int(floor(lo / cell_size), floor(hi / cell_size))
     }
     box_keys <- function(i) {
-        x_cells <- cell_range(state$x[i] - width[i] / 2,
-                              state$x[i] + width[i] / 2)
-        y_cells <- cell_range(state$y[i] - height[i] / 2,
-                              state$y[i] + height[i] / 2)
+        x_cells <- cell_range(x[i] - width[i] / 2,
+                              x[i] + width[i] / 2)
+        y_cells <- cell_range(y[i] - height[i] / 2,
+                              y[i] + height[i] / 2)
         as.vector(outer(x_cells, y_cells,
                         FUN = function(a, b) paste(a, b, sep = ":")))
     }
-    insert <- function(i) {
-        keys <- box_keys(i)
-        state$members[[i]] <- keys
-        for (key in keys) {
+    for (i in seq_len(n)) {
+        for (key in box_keys(i)) {
             ids <- if (exists(key, cells, inherits = FALSE)) cells[[key]] else integer()
             cells[[key]] <- c(ids, i)
         }
     }
-    remove <- function(i) {
-        for (key in state$members[[i]]) {
-            ids <- cells[[key]]
-            keep <- ids != i
-            if (any(keep)) cells[[key]] <- ids[keep]
-            else rm(list = key, envir = cells)
-        }
-        state$members[[i]] <- character()
-    }
-    update <- function(i, new_x, new_y) {
-        remove(i)
-        state$x[i] <- new_x
-        state$y[i] <- new_y
-        insert(i)
-    }
+
+    ## Cell occupancy gives a conservative estimate: a pair can be returned
+    ## from more than one cell, so this intentionally overestimates the number
+    ## of unique candidates. It is used only to decide whether the grid can
+    ## beat the O(n^2) full scan; overestimation safely selects the full scan.
+    occupancy <- vapply(ls(envir = cells, all.names = TRUE),
+                        function(key) length(cells[[key]]), integer(1))
+    estimated_pairs <- sum(occupancy * (occupancy - 1) / 2)
+
     query <- function(i) {
-        keys <- box_keys(i)
-        ids <- unlist(lapply(keys, function(key) {
+        ids <- unlist(lapply(box_keys(i), function(key) {
             if (exists(key, cells, inherits = FALSE)) cells[[key]] else integer()
         }), use.names = FALSE)
         if (!length(ids)) return(integer())
         sort(unique(ids))
     }
 
-    for (i in seq_len(n)) insert(i)
-    list(query = query, update = update)
+    list(
+        query = query,
+        estimated_pairs = as.numeric(estimated_pairs),
+        cell_count = length(occupancy),
+        cell_entries = sum(occupancy),
+        max_occupancy = if (length(occupancy)) max(occupancy) else 0L
+    )
 }
 
 ## One sequential solver sweep. The full nested loops remain the reference path
 ## for small inputs; the grid path only replaces checks that cannot overlap on
-## either axis and otherwise visits pairs in exactly the same row order.
+## either axis and otherwise visits pairs in exactly the same row order. A grid
+## is retained only when its conservative occupancy estimate is cheaper than a
+## full scan. Since movement invalidates static candidates, the first movement
+## switches the remainder of that sweep to the full scan rather than mutating a
+## hash table after every pair.
 repel_boxes_sweep <- function(x, y, width, height, move_x, move_y, force,
                              broad.phase, clearance = 0) {
     n <- length(x)
@@ -368,25 +367,35 @@ repel_boxes_sweep <- function(x, y, width, height, move_x, move_y, force,
     max_overlap <- 0
     use_grid <- isTRUE(broad.phase) && n > 64L &&
         all(is.finite(x)) && all(is.finite(y)) &&
-        all(is.finite(width)) && all(is.finite(height))
+        all(is.finite(width)) && all(is.finite(height)) &&
+        all(width >= 0) && all(height >= 0)
     grid <- if (use_grid) repel_grid_state(x, y, width, height) else NULL
 
-    for (i in seq_len(n - 1L)) {
-        if (is.null(grid)) {
-            candidates <- (i + 1L):n
-        } else {
-            candidates <- grid$query(i)
-            candidates <- candidates[candidates > i]
-        }
-        if (!length(candidates)) next
+    ## Cell occupancy counts can include a pair more than once, so this is an
+    ## intentionally conservative cost estimate. Ties go to the full scan,
+    ## which avoids paying hash and sort overhead for no candidate reduction.
+    if (!is.null(grid)) {
+        full_pairs <- n * (n - 1) / 2
+        grid_cost <- n + grid$cell_entries + grid$estimated_pairs
+        if (!is.finite(grid_cost) || grid_cost >= full_pairs) grid <- NULL
+    }
+    grid_stale <- is.null(grid)
 
-        ## Query again after every candidate: movement of i or j updates the
-        ## grid and can make a later pair enter the candidate set.
+    for (i in seq_len(n - 1L)) {
+        grid_candidates <- if (!grid_stale) {
+            candidates <- grid$query(i)
+            candidates[candidates > i]
+        } else {
+            integer()
+        }
+
+        ## Before any movement the immutable candidate list is complete for
+        ## the initial positions. Once a pair moves, all later pairs are
+        ## checked so that newly-created overlaps cannot be omitted.
         next_j <- i + 1L
         repeat {
-            if (!is.null(grid)) {
-                candidates <- grid$query(i)
-                candidates <- candidates[candidates >= next_j]
+            if (!grid_stale) {
+                candidates <- grid_candidates[grid_candidates >= next_j]
                 if (!length(candidates)) break
                 j <- candidates[1L]
             } else {
@@ -413,10 +422,10 @@ repel_boxes_sweep <- function(x, y, width, height, move_x, move_y, force,
                 y[i] <- y[i] - shift * sy
                 y[j] <- y[j] + shift * sy
             }
-            if (!is.null(grid)) {
-                grid$update(i, x[i], y[i])
-                grid$update(j, x[j], y[j])
-            }
+            ## A static grid is conservative only until the first movement.
+            ## Thereafter the full scan preserves the historical pair order
+            ## while finding pairs that entered a cell after that movement.
+            if (!grid_stale) grid_stale <- TRUE
         }
     }
     list(x = x, y = y, overlapping = overlapping, max_overlap = max_overlap)

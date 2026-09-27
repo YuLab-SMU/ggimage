@@ -73,3 +73,41 @@ test_that("broad phase handles sparse layouts at n = 100 and 250", {
         expect_equal(first$y[7:n], y[7:n])
     }
 })
+
+
+test_that("adaptive broad phase uses full-scan cost for dense grids", {
+    n <- 96L
+    args <- list(
+        x = rep(0.5, n), y = rep(0.5, n),
+        width = rep(0.2, n), height = rep(0.2, n),
+        max.iter = 3L, force = 0.2, direction = "both"
+    )
+    reference <- do.call(ggimage:::repel_boxes,
+                         c(args, list(broad.phase = FALSE)))
+    candidate <- do.call(ggimage:::repel_boxes,
+                         c(args, list(broad.phase = TRUE)))
+    expect_equal(candidate, reference, tolerance = 1e-12)
+
+    grid <- ggimage:::repel_grid_state(args$x, args$y,
+                                       args$width, args$height)
+    full_pairs <- n * (n - 1) / 2
+    expect_gte(grid$estimated_pairs + n, full_pairs)
+    expect_equal(grid$max_occupancy, n)
+})
+
+
+test_that("grid candidate estimates scale with sparse occupancy", {
+    estimates <- vapply(c(96L, 192L, 384L), function(n) {
+        grid <- ggimage:::repel_grid_state(
+            x = seq(0, by = 2, length.out = n),
+            y = rep(c(0, 1), length.out = n),
+            width = rep(0.2, n), height = rep(0.2, n)
+        )
+        expect_lt(grid$estimated_pairs + n, n * (n - 1) / 2)
+        grid$estimated_pairs
+    }, numeric(1))
+
+    ## There are no shared cells in this fixture, so candidate handling stays
+    ## linear in n rather than approaching the quadratic full-pair count.
+    expect_equal(estimates, c(0, 0, 0))
+})
