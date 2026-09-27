@@ -141,19 +141,87 @@ test_that("use_cache FALSE and clear_image_cache bypass and clear policy state",
   expect_equal(ggimage:::get_image_transform_cache_size(), 0L)
 })
 
+
 test_that("cache policy getter and setter expose compatible options", {
   old_options <- options(
     ggimage.image_cache_capacity = NULL,
     ggimage.image_cache_ttl = NULL,
-    ggimage.image_cache_eviction = NULL
+    ggimage.image_cache_eviction = NULL,
+    ggimage.image_cache_bytes = NULL
   )
   withr::defer(options(old_options))
-  old <- ggimage::set_image_cache_policy(capacity = 3, ttl = 4, eviction = "fifo")
+  old <- ggimage::set_image_cache_policy(capacity = 3, ttl = 4, eviction = "fifo",
+                                         bytes = 1234)
   policy <- ggimage::get_image_cache_policy()
   expect_equal(policy$base_capacity, 3)
   expect_equal(policy$transform_capacity, 3)
   expect_equal(policy$base_ttl, 4)
   expect_equal(policy$transform_ttl, 4)
+  expect_equal(policy$base_bytes, 1234)
+  expect_equal(policy$transform_bytes, 1234)
   expect_equal(policy$eviction, "fifo")
   expect_type(old, "list")
+})
+
+test_that("estimated byte cap evicts entries and reports diagnostics", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+  one_bytes <- ggimage:::`.image_cache_estimate_bytes`("a")
+  withr::local_options(list(
+    ggimage.image_cache_base_capacity = Inf,
+    ggimage.image_cache_base_bytes = one_bytes,
+    ggimage.image_cache_transform_bytes = Inf,
+    ggimage.image_cache_ttl = Inf,
+    ggimage.image_cache_eviction = "fifo"
+  ))
+
+  ggimage:::cache_set_image("a", "a")
+  ggimage:::cache_set_image("b", "b")
+  expect_equal(ggimage:::get_image_cache_size(), 1L)
+  expect_null(ggimage:::cache_get_image("a"))
+  expect_equal(ggimage:::cache_get_image("b"), "b")
+
+  stats <- ggimage::get_image_cache_stats()
+  expect_equal(unname(stats$base["hits"]), 1L)
+  expect_equal(unname(stats$base["misses"]), 1L)
+  expect_equal(unname(stats$base["evictions"]), 1L)
+  expect_equal(unname(stats$base["entries"]), 1L)
+  expect_lte(unname(stats$base["bytes"]), one_bytes)
+})
+
+
+test_that("expiry diagnostics use the controllable clock", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+  now <- 10
+  withr::local_options(list(
+    ggimage.image_cache_capacity = Inf,
+    ggimage.image_cache_bytes = Inf,
+    ggimage.image_cache_ttl = 5,
+    ggimage.image_cache_clock = function() now
+  ))
+
+  ggimage:::cache_set_image("expiry", "value")
+  now <- 15
+  expect_null(ggimage:::cache_get_image("expiry"))
+  stats <- ggimage::get_image_cache_diagnostics()
+  expect_equal(unname(stats$base["expirations"]), 1L)
+  expect_equal(unname(stats$base["misses"]), 1L)
+})
+
+
+test_that("cache diagnostics reset independently and with clear", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+  ggimage:::cache_set_image("reset", "value")
+  expect_equal(ggimage:::cache_get_image("reset"), "value")
+  expect_gt(ggimage::get_image_cache_stats()$base["hits"], 0)
+
+  ggimage::reset_image_cache_stats()
+  expect_equal(as.numeric(unname(ggimage::get_image_cache_stats()$base["hits"])), 0)
+  expect_equal(ggimage:::get_image_cache_size(), 1L)
+
+  ggimage:::clear_image_cache()
+  expect_equal(as.numeric(unname(ggimage::get_image_cache_stats()$base["hits"])), 0)
+  expect_equal(ggimage:::get_image_cache_size(), 0L)
 })

@@ -220,18 +220,47 @@ GeomImage <- ggproto("GeomImage", Geom,
 .IMAGE_CACHE_ITEM <- ".ggimage_cache_image"
 .IMAGE_TRANSFORM_CACHE_ITEM <- ".ggimage_cache_image_transform"
 .IMAGE_CACHE_META <- new.env(parent = emptyenv())
+.IMAGE_CACHE_STATS <- new.env(parent = emptyenv())
+
+.image_cache_stats_default <- function() {
+  list(hits = 0L, misses = 0L, evictions = 0L, expirations = 0L)
+}
+
+.image_cache_stats_get <- function(item) {
+  stats <- get0(item, envir = .IMAGE_CACHE_STATS, ifnotfound = NULL)
+  if (is.null(stats)) stats <- .image_cache_stats_default()
+  stats
+}
+
+.image_cache_stats_add <- function(item, field, amount = 1L) {
+  stats <- .image_cache_stats_get(item)
+  stats[[field]] <- as.integer(stats[[field]] + amount)
+  assign(item, stats, envir = .IMAGE_CACHE_STATS)
+  invisible(NULL)
+}
+
+.image_cache_stats_reset <- function() {
+  rm(list = ls(envir = .IMAGE_CACHE_STATS, all.names = TRUE),
+     envir = .IMAGE_CACHE_STATS)
+  invisible(NULL)
+}
 
 # Cache policy options (all limits are per cache unless a cache-specific option
 # is supplied).  The defaults are intentionally unlimited, matching the
 # historical behaviour.  A clock option is provided as a small test seam and
 # must return a POSIXct or numeric value in seconds.
 #
-#   ggimage.image_cache = list(capacity = Inf, ttl = Inf,
+#   ggimage.image_cache = list(capacity = Inf, ttl = Inf, bytes = Inf,
 #                              eviction = "lru")
-#   ggimage.image_cache_capacity / _ttl / _eviction
+#   ggimage.image_cache_capacity / _ttl / _bytes / _eviction
 #   ggimage.image_cache_base_capacity / _transform_capacity
 #   ggimage.image_cache_base_ttl / _transform_ttl
+#   ggimage.image_cache_base_bytes / _transform_bytes
 #   ggimage.image_cache_clock
+#
+# Byte limits are estimates based on object.size(), with a conservative
+# width * height * 4 estimate for magick images. They do not measure native
+# ImageMagick allocations and should be treated as approximate guardrails.
 .image_cache_policy <- function() {
   nested <- getOption("ggimage.image_cache", NULL)
   if (!is.list(nested)) nested <- list()
@@ -269,6 +298,12 @@ GeomImage <- ggproto("GeomImage", Geom,
       return(Inf)
     value
   }
+  normalize_bytes <- function(value) {
+    value <- suppressWarnings(as.numeric(value)[1L])
+    if (length(value) != 1L || is.na(value) || is.nan(value) || value < 0)
+      return(Inf)
+    if (is.infinite(value)) Inf else floor(value)
+  }
   global_capacity <- pick("ggimage.image_cache_capacity", "capacity")
   if (is.null(global_capacity))
     global_capacity <- getOption("ggimage.image_cache_max_items", NULL)
@@ -279,6 +314,9 @@ GeomImage <- ggproto("GeomImage", Geom,
   if (is.null(global_ttl)) global_ttl <- getOption("ggimage.cache.ttl", NULL)
   if (is.null(global_ttl)) global_ttl <- nested$ttl
   global_eviction <- pick("ggimage.image_cache_eviction", "eviction")
+  global_bytes <- pick("ggimage.image_cache_bytes", "bytes", "byte_capacity")
+  if (is.null(global_bytes)) global_bytes <- getOption("ggimage.image_cache_byte_capacity", NULL)
+  if (is.null(global_bytes)) global_bytes <- getOption("ggimage.image_cache_max_bytes", NULL)
   base_capacity <- getOption("ggimage.image_cache_base_capacity", NULL)
   if (is.null(base_capacity)) base_capacity <- nested_base$capacity
   transform_capacity <- getOption("ggimage.image_cache_transform_capacity", NULL)
@@ -287,6 +325,12 @@ GeomImage <- ggproto("GeomImage", Geom,
   if (is.null(base_ttl)) base_ttl <- nested_base$ttl
   transform_ttl <- getOption("ggimage.image_cache_transform_ttl", NULL)
   if (is.null(transform_ttl)) transform_ttl <- nested_transform$ttl
+  base_bytes <- getOption("ggimage.image_cache_base_bytes", NULL)
+  if (is.null(base_bytes)) base_bytes <- getOption("ggimage.image_cache_base_byte_capacity", NULL)
+  if (is.null(base_bytes)) base_bytes <- nested_base$bytes %||% nested_base$byte_capacity
+  transform_bytes <- getOption("ggimage.image_cache_transform_bytes", NULL)
+  if (is.null(transform_bytes)) transform_bytes <- getOption("ggimage.image_cache_transform_byte_capacity", NULL)
+  if (is.null(transform_bytes)) transform_bytes <- nested_transform$bytes %||% nested_transform$byte_capacity
   eviction <- global_eviction %||% "lru"
   if (length(eviction) != 1L || is.na(eviction) ||
       !eviction %in% c("lru", "fifo", "none")) eviction <- "lru"
@@ -303,7 +347,11 @@ GeomImage <- ggproto("GeomImage", Geom,
       "ggimage.image_cache_base_ttl", base_ttl, global_ttl, Inf)),
     transform_ttl = normalize_ttl(pick_specific(
       "ggimage.image_cache_transform_ttl", transform_ttl, global_ttl, Inf)),
-    eviction = as.character(eviction),
+     base_bytes = normalize_bytes(pick_specific(
+       "ggimage.image_cache_base_bytes", base_bytes, global_bytes, Inf)),
+     transform_bytes = normalize_bytes(pick_specific(
+       "ggimage.image_cache_transform_bytes", transform_bytes, global_bytes, Inf)),
+     eviction = as.character(eviction),
     clock = clock
   )
 }
@@ -313,19 +361,25 @@ GeomImage <- ggproto("GeomImage", Geom,
 ##' Get or set the global image cache policy.
 ##'
 ##' Cache limits may also be supplied with `options()`: use
-##' `ggimage.image_cache_capacity`, `ggimage.image_cache_ttl`, and
-##' `ggimage.image_cache_eviction` for both caches, or the corresponding
-##' `ggimage.image_cache_base_*` and `ggimage.image_cache_transform_*` options
-##' independently.  The default capacity and TTL are infinite, preserving the
-##' historical unbounded cache.  `eviction` is one of `"lru"`, `"fifo"`, or
-##' `"none"`; the last value disables capacity eviction.  `clock` is intended
-##' for deterministic tests and should return seconds or a POSIXct value.
+##' `ggimage.image_cache_capacity`, `ggimage.image_cache_ttl`,
+##' `ggimage.image_cache_bytes`, and `ggimage.image_cache_eviction` for both
+##' caches, or the corresponding `ggimage.image_cache_base_*` and
+##' `ggimage.image_cache_transform_*` options independently. Byte limits are
+##' approximate object-size guardrails rather than process-memory measurements.
+##' The default capacity, TTL, and byte cap are infinite, preserving the
+##' historical unbounded cache. `eviction` is one of `"lru"`, `"fifo"`, or
+##' `"none"`; the last value disables capacity and byte eviction. `clock` is
+##' intended for deterministic tests and should return seconds or POSIXct.
 ##'
 ##' @param capacity,ttl Optional shared capacity (number of entries) and TTL
 ##'   (seconds). `NULL` leaves the current option unchanged.
+##' @param bytes Optional shared estimated byte cap for each cache. `NULL` leaves
+##'   the current option unchanged. This is an estimate, not a process-memory
+##'   measurement; native image buffers may be larger than the estimate.
 ##' @param eviction Optional eviction policy: `"lru"`, `"fifo"`, or `"none"`.
 ##' @param base_capacity,transform_capacity Cache-specific capacities.
 ##' @param base_ttl,transform_ttl Cache-specific TTLs in seconds.
+##' @param base_bytes,transform_bytes Cache-specific estimated byte caps.
 ##' @param clock Optional function used as the cache clock.
 ##' @return `get_image_cache_policy()` returns a policy list. The setter returns
 ##'   the previous policy invisibly.
@@ -342,7 +396,8 @@ set_image_cache_policy <- function(capacity = NULL, ttl = NULL, eviction = NULL,
                                    base_capacity = NULL,
                                    transform_capacity = NULL,
                                    base_ttl = NULL, transform_ttl = NULL,
-                                   clock = NULL) {
+                                   bytes = NULL, base_bytes = NULL,
+                                   transform_bytes = NULL, clock = NULL) {
   old <- get_image_cache_policy()
   values <- list(
     ggimage.image_cache_capacity = capacity,
@@ -352,6 +407,9 @@ set_image_cache_policy <- function(capacity = NULL, ttl = NULL, eviction = NULL,
     ggimage.image_cache_transform_capacity = transform_capacity,
     ggimage.image_cache_base_ttl = base_ttl,
     ggimage.image_cache_transform_ttl = transform_ttl,
+    ggimage.image_cache_bytes = bytes,
+    ggimage.image_cache_base_bytes = base_bytes,
+    ggimage.image_cache_transform_bytes = transform_bytes,
     ggimage.image_cache_clock = clock
   )
   values <- values[!vapply(values, is.null, logical(1))]
@@ -388,6 +446,21 @@ image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NU
         if (is.null(colour) || is.na(colour)) "" else as.character(colour),
         if (is.null(opacity) || is.na(opacity)) "" else as.character(opacity),
         image_fun_key, sep = "|")
+}
+
+.image_cache_estimate_bytes <- function(value) {
+  estimate <- suppressWarnings(as.numeric(object.size(value)))
+  if (length(estimate) != 1L || !is.finite(estimate) || estimate < 0)
+    estimate <- 0
+  if (methods::is(value, "magick-image")) {
+    info <- tryCatch(magick::image_info(value), error = function(e) NULL)
+    if (!is.null(info) && nrow(info)) {
+      pixels <- suppressWarnings(sum(as.numeric(info$width) *
+                                     as.numeric(info$height) * 4))
+      if (is.finite(pixels)) estimate <- max(estimate, pixels)
+    }
+  }
+  floor(estimate)
 }
 
 .image_cache_now <- function(policy) {
@@ -438,6 +511,7 @@ image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NU
   }, logical(1))]
   if (length(expired)) {
     .image_cache_remove_keys(item, expired)
+    .image_cache_stats_add(item, "expirations", length(expired))
     metadata[expired] <- NULL
     .image_cache_meta_set(item, metadata)
     values <- tryCatch(get_cache_item(item), error = function(e) NULL)
@@ -449,7 +523,7 @@ image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NU
   values
 }
 
-.image_cache_touch <- function(item, key, ttl, now, reset = FALSE) {
+.image_cache_touch <- function(item, key, ttl, now, reset = FALSE, bytes = NULL) {
   metadata <- .image_cache_meta_get(item)
   entry <- metadata[[key]]
   if (is.null(entry) || reset) {
@@ -459,29 +533,51 @@ image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NU
   } else {
     entry$last_access <- now
   }
+  if (!is.null(bytes)) entry$bytes <- .image_cache_estimate_bytes(bytes)
   metadata[[key]] <- entry
   .image_cache_meta_set(item, metadata)
 }
 
-.image_cache_enforce_capacity <- function(item, capacity, eviction, now, ttl) {
+.image_cache_enforce_capacity <- function(item, capacity, eviction, now, ttl,
+                                          bytes = Inf) {
   values <- .image_cache_prune(item, .image_cache_policy(), now)
-  if (is.null(values) || !length(values) || !is.finite(capacity) || eviction == "none")
+  if (is.null(values) || !length(values) || eviction == "none")
     return(invisible(NULL))
   metadata <- .image_cache_meta_get(item)
   for (key in names(values)) {
-    if (is.null(metadata[[key]])) .image_cache_touch(item, key, ttl, now)
+    if (is.null(metadata[[key]]))
+      .image_cache_touch(item, key, ttl, now, bytes = values[[key]])
+    else if (is.null(metadata[[key]]$bytes)) {
+      metadata[[key]]$bytes <- .image_cache_estimate_bytes(values[[key]])
+    }
   }
   metadata <- .image_cache_meta_get(item)
-  if (length(values) <= capacity) return(invisible(NULL))
+  total_bytes <- sum(vapply(metadata[names(values)], function(x) {
+    value <- x$bytes
+    if (is.null(value) || !is.finite(value) || value < 0) 0 else value
+  }, numeric(1)))
+  over_capacity <- is.finite(capacity) && length(values) > capacity
+  over_bytes <- is.finite(bytes) && total_bytes > bytes
+  if (!over_capacity && !over_bytes) return(invisible(NULL))
   metric <- if (eviction == "fifo") {
     vapply(metadata[names(values)], function(x) x$sequence, numeric(1))
   } else {
     vapply(metadata[names(values)], function(x) x$last_access, numeric(1))
   }
-  remove <- names(values)[order(metric, names(values))[seq_len(length(values) - capacity)]]
+  ordered <- names(values)[order(metric, names(values))]
+  remove <- character()
+  remaining_bytes <- total_bytes
+  for (key in ordered) {
+    if ((!is.finite(capacity) || length(values) - length(remove) <= capacity) &&
+        (!is.finite(bytes) || remaining_bytes <= bytes)) break
+    remove <- c(remove, key)
+    remaining_bytes <- remaining_bytes - (metadata[[key]]$bytes %||% 0)
+  }
+  if (!length(remove)) return(invisible(NULL))
   .image_cache_remove_keys(item, remove)
   metadata[remove] <- NULL
   .image_cache_meta_set(item, metadata)
+  .image_cache_stats_add(item, "evictions", length(remove))
   invisible(NULL)
 }
 
@@ -492,7 +588,12 @@ cache_get_image <- function(key, use_cache = TRUE) {
   now <- .image_cache_now(policy)
   .image_cache_prune(.IMAGE_CACHE_ITEM, policy, now)
   value <- tryCatch(get_cache_element(.IMAGE_CACHE_ITEM, key), error = function(e) NULL)
-  if (!is.null(value)) .image_cache_touch(.IMAGE_CACHE_ITEM, key, policy$base_ttl, now)
+  if (!is.null(value)) {
+    .image_cache_stats_add(.IMAGE_CACHE_ITEM, "hits")
+    .image_cache_touch(.IMAGE_CACHE_ITEM, key, policy$base_ttl, now)
+  } else {
+    .image_cache_stats_add(.IMAGE_CACHE_ITEM, "misses")
+  }
   value
 }
 
@@ -502,9 +603,11 @@ cache_set_image <- function(key, value, use_cache = TRUE) {
   now <- .image_cache_now(policy)
   tryCatch(update_cache_item(.IMAGE_CACHE_ITEM, stats::setNames(list(value), key)),
            error = function(e) return(invisible(NULL)))
-  .image_cache_touch(.IMAGE_CACHE_ITEM, key, policy$base_ttl, now, reset = TRUE)
+    .image_cache_touch(.IMAGE_CACHE_ITEM, key, policy$base_ttl, now,
+                     reset = TRUE, bytes = value)
   .image_cache_enforce_capacity(.IMAGE_CACHE_ITEM, policy$base_capacity,
-                                policy$eviction, now, policy$base_ttl)
+                                policy$eviction, now, policy$base_ttl,
+                                 policy$base_bytes)
   invisible(value)
 }
 
@@ -514,8 +617,13 @@ cache_get_transformed <- function(tkey, use_cache = TRUE) {
   now <- .image_cache_now(policy)
   .image_cache_prune(.IMAGE_TRANSFORM_CACHE_ITEM, policy, now)
   value <- tryCatch(get_cache_element(.IMAGE_TRANSFORM_CACHE_ITEM, tkey), error = function(e) NULL)
-  if (!is.null(value)) .image_cache_touch(.IMAGE_TRANSFORM_CACHE_ITEM, tkey,
-                                           policy$transform_ttl, now)
+  if (!is.null(value)) {
+    .image_cache_stats_add(.IMAGE_TRANSFORM_CACHE_ITEM, "hits")
+    .image_cache_touch(.IMAGE_TRANSFORM_CACHE_ITEM, tkey,
+                       policy$transform_ttl, now)
+  } else {
+    .image_cache_stats_add(.IMAGE_TRANSFORM_CACHE_ITEM, "misses")
+  }
   value
 }
 
@@ -527,10 +635,11 @@ cache_set_transformed <- function(tkey, value, use_cache = TRUE) {
                              stats::setNames(list(value), tkey)),
            error = function(e) return(invisible(NULL)))
   .image_cache_touch(.IMAGE_TRANSFORM_CACHE_ITEM, tkey, policy$transform_ttl,
-                     now, reset = TRUE)
+                     now, reset = TRUE, bytes = value)
   .image_cache_enforce_capacity(.IMAGE_TRANSFORM_CACHE_ITEM,
                                 policy$transform_capacity, policy$eviction,
-                                now, policy$transform_ttl)
+                                now, policy$transform_ttl,
+                                 policy$transform_bytes)
   invisible(value)
 }
 
@@ -541,6 +650,52 @@ clear_image_cache <- function() {
   for (item in c(.IMAGE_CACHE_ITEM, .IMAGE_TRANSFORM_CACHE_ITEM))
     if (exists(item, envir = .IMAGE_CACHE_META, inherits = FALSE))
       rm(list = item, envir = .IMAGE_CACHE_META)
+  .image_cache_stats_reset()
+  invisible(NULL)
+}
+
+.image_cache_stats_snapshot <- function(item, policy, now) {
+  .image_cache_prune(item, policy, now)
+  values <- tryCatch(get_cache_item(item), error = function(e) NULL)
+  metadata <- .image_cache_meta_get(item)
+  bytes <- if (length(values)) sum(vapply(names(values), function(key) {
+    value <- metadata[[key]]$bytes
+    if (is.null(value) || !is.finite(value) || value < 0)
+      .image_cache_estimate_bytes(values[[key]]) else value
+  }, numeric(1))) else 0
+  stats <- unlist(.image_cache_stats_get(item), use.names = TRUE)
+  c(stats, entries = length(values), bytes = bytes)
+}
+
+##' Return image cache hit, miss, eviction, expiry, and size diagnostics.
+##'
+##' The `bytes` and `entries` values are estimates/current counts. Byte estimates
+##' use `object.size()` (and a pixel-based lower bound for magick images), so
+##' native ImageMagick allocations are not accounted for exactly.
+##'
+##' @return A list with `base` and `transform` named diagnostic vectors.
+##' @export
+get_image_cache_stats <- function() {
+  policy <- .image_cache_policy()
+  now <- .image_cache_now(policy)
+  list(
+    base = .image_cache_stats_snapshot(.IMAGE_CACHE_ITEM, policy, now),
+    transform = .image_cache_stats_snapshot(.IMAGE_TRANSFORM_CACHE_ITEM,
+                                             policy, now)
+  )
+}
+
+##' @rdname get_image_cache_stats
+##' @export
+get_image_cache_diagnostics <- get_image_cache_stats
+
+##' Reset image cache hit/miss and eviction/expiry counters.
+##'
+##' Cache entries are retained; use `clear_image_cache()` to clear entries and
+##' reset these counters together.
+##' @export
+reset_image_cache_stats <- function() {
+  .image_cache_stats_reset()
   invisible(NULL)
 }
 
