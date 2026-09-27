@@ -95,6 +95,15 @@ GeomInteractiveImage <- ggproto(
     )
     image_fun_key <- if (use_cache) image_fun_cache_key(image_fun) else NULL
     adjs <- GeomImage$build_adjust(data, panel_params, by)
+    prepared_images <- prepare_image_batch(
+      img = data$image,
+      colour = if ("colour" %in% names(data)) data$colour else NULL,
+      opacity = if ("alpha" %in% names(data)) data$alpha else 1,
+      angle = if ("angle" %in% names(data)) data$angle else 0,
+      image_fun = image_fun,
+      use_cache = use_cache,
+      image_fun_key = image_fun_key
+    )
     grobs <- lapply(seq_len(nrow(data)), function(i){
          gb <- imageGrob(x = data$x[i],
                    y = data$y[i],
@@ -111,7 +120,9 @@ GeomInteractiveImage <- ggproto(
                    asp = asp,
                    use_cache = use_cache,
                     width = widths[i],
-                    height = heights[i]
+                    height = heights[i],
+                   prepared_image = prepared_images[[i]],
+                   prepared = TRUE
          )
          gb <- add_interactive_attrs(gb, data[i,], ipar=.ipar)
          return(gb)
