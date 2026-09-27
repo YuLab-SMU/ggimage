@@ -4,6 +4,13 @@
 + support `width` and `height` aesthetics in `geom_image()`, including aspect-ratio-preserving one-sided sizing
 + improve image legend keys with point, rectangle, image, and blank key modes, including colour and alpha handling
 + clarify image coordinate semantics and add regression coverage for `hjust`, nudging, `coord_fixed()`, and full-panel images (2026-09-25, Fri)
++ isolate `geom_bgimage()` to one background grob instead of repeating it for every plot row
++ bound and accelerate `geom_image_repel()` with deterministic cleanup limits, adaptive broad-phase candidate filtering, and sparse/dense regression benchmarks
++ deduplicate panel-local image preparation while preserving row-specific dimensions, positions, and interactive attributes
++ add configurable image-cache capacity, TTL, byte limits, LRU/FIFO eviction, and hit/miss/eviction diagnostics via `get_image_cache_stats()` and related helpers
++ cache successful URL checks with optional TTL/capacity controls, and make Phylopic downloads lock-safe with temporary files and atomic installation
++ optimize repeated subview conversion, legend logo loading, and `image_read2()` whitespace cropping while preserving alpha channels
++ add offline developer benchmarks covering repel scaling, image preparation, cache policy, image utilities, and subview rendering
 
 ## ggimage 0.3.5
 
