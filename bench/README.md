@@ -16,6 +16,7 @@ Rscript bench/bench-geom-image.R
 Rscript bench/bench-geom-image-repel.R
 Rscript bench/bench-repel-solver.R
 Rscript bench/bench-image-cache.R
+Rscript bench/bench-image-cache-policy.R
 Rscript bench/bench-repel-broadphase.R
 Rscript bench/bench-image-utils.R
 Rscript bench/bench-geom-subview.R
@@ -78,6 +79,10 @@ one base/transform entry, unique paths grow both counters with `n`, and
 `use_cache = FALSE` leaves both counters empty. It reports internal cache
 statistics and fails only when those deterministic policy invariants do not
 hold.
+
+`bench-image-cache-policy.R` exercises finite LRU entry limits and the fourth-
+phase hit/miss/eviction diagnostics using generated local files. It is a
+non-network smoke benchmark and is controlled by `GGIMAGE_BENCH_SIZES`.
 
 ## Interpreting results
 
