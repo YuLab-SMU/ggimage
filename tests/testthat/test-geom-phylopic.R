@@ -119,6 +119,39 @@ test_that("download_phylopic skips non-empty existing duplicate targets", {
     expect_identical(readLines(target), "source")
 })
 
+test_that("download_phylopic installs downloads atomically", {
+    tmp <- tempfile("ggimage-phylopic-atomic-")
+    dir.create(tmp)
+    on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+    id <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+    target <- paste0(tmp, "/", id, "vector.svg")
+    calls <- 0L
+    local_mocked_bindings(
+        phylopic = function(id) {
+            url <- rep("mock://vector.svg", length(id))
+            names(url) <- names(id)
+            url
+        },
+        .phylopic_download = function(url, destfile, ...) {
+            calls <<- calls + 1L
+            writeLines("complete", destfile)
+            0L
+        },
+        .package = "ggimage"
+    )
+
+    result <- ggimage::download_phylopic(id, destdir = tmp)
+    expect_identical(unname(result), target)
+    expect_true(ggimage:::.phylopic_regular_file(target))
+    expect_identical(readLines(target), "complete")
+    expect_identical(calls, 1L)
+
+    ## A second call reuses the complete regular file and does not invoke the
+    ## downloader again.
+    ggimage::download_phylopic(id, destdir = tmp)
+    expect_identical(calls, 1L)
+})
+
 test_that("embedded vector links are extracted without network access", {
     uid <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
     response <- list(
