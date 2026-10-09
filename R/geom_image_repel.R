@@ -75,6 +75,23 @@
 ##'   `direction` only restricts the displacement, so `direction = "x"` slides
 ##'   overlapping images horizontally until they no longer overlap.
 ##' @param ... additional parameters
+##' @section Aesthetics:
+##' `geom_image_repel()` understands the same aesthetics as [geom_image()]
+##' (required aesthetics are in bold):
+##'
+##' - **`x`**
+##' - **`y`**
+##' - `image`
+##' - `size`
+##' - `width`
+##' - `height`
+##' - `colour`
+##' - `angle`
+##' - `alpha`
+##'
+##' `colour` and `alpha` are applied to the drawn image and do not influence
+##' the repulsion, which is computed from `x`, `y`, `size`, `width` and
+##' `height` alone.
 ##' @return geom layer
 ##' @importFrom ggplot2 layer
 ##' @export

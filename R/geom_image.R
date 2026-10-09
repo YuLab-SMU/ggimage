@@ -31,6 +31,25 @@
 ##'   positive are ignored, and the `size`/`by` behavior is used for the
 ##'   affected image.
 ##' @param ... additional parameters
+##' @section Aesthetics:
+##' `geom_image()` understands the following aesthetics (required aesthetics
+##' are in bold):
+##'
+##' - **`x`**
+##' - **`y`**
+##' - `image`
+##' - `size`
+##' - `width`
+##' - `height`
+##' - `colour`
+##' - `angle`
+##' - `alpha`
+##'
+##' `colour` and `alpha` are applied per row: `colour` tints the image and
+##' `alpha` sets its opacity, so both `aes(colour = ...)` and
+##' `aes(alpha = ...)` work. `alpha` is an ordinary ggplot2 aesthetic, so its
+##' default continuous scale maps the data range onto `[0.1, 1]`; add
+##' `scale_alpha_identity()` to pass the values through unchanged.
 ##' @return geom layer
 ##' @importFrom ggplot2 layer
 ##' @export

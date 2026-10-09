@@ -4,20 +4,8 @@
 ## the repelling calls were indistinguishable from max.iter = 0. Assert on the
 ## example itself so it cannot silently become a no-op again.
 
-repel_example_rd <- function() {
-    candidates <- c(
-        file.path("..", "..", "man", "geom_image_repel.Rd"),
-        file.path("..", "man", "geom_image_repel.Rd"),
-        file.path("man", "geom_image_repel.Rd")
-    )
-    hit <- candidates[file.exists(candidates)]
-    if (length(hit) == 0L) return(NULL)
-    hit[[1L]]
-}
-
-## evaluate the example and return the plots it draws, in order
 repel_example_plots <- function() {
-    rd <- repel_example_rd()
+    rd <- pkg_rd_file("geom_image_repel")
     if (is.null(rd)) return(NULL)
     ex <- tempfile(fileext = ".R")
     on.exit(unlink(ex), add = TRUE)

@@ -121,6 +121,27 @@ square panel otherwise, which over-estimates the width of a panel that is
 wider than it is high. Pass explicit \code{width}/\code{height} when the exact box
 matters.
 }
+\section{Aesthetics}{
+
+\code{geom_image_repel()} understands the same aesthetics as \code{\link[=geom_image]{geom_image()}}
+(required aesthetics are in bold):
+\itemize{
+\item \strong{\code{x}}
+\item \strong{\code{y}}
+\item \code{image}
+\item \code{size}
+\item \code{width}
+\item \code{height}
+\item \code{colour}
+\item \code{angle}
+\item \code{alpha}
+}
+
+\code{colour} and \code{alpha} are applied to the drawn image and do not influence
+the repulsion, which is computed from \code{x}, \code{y}, \code{size}, \code{width} and
+\code{height} alone.
+}
+
 \examples{
 library("ggplot2")
 library("ggimage")

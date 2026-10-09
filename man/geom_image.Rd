@@ -65,6 +65,29 @@ geom layer
 \description{
 geom layer for visualizing image files
 }
+\section{Aesthetics}{
+
+\code{geom_image()} understands the following aesthetics (required aesthetics
+are in bold):
+\itemize{
+\item \strong{\code{x}}
+\item \strong{\code{y}}
+\item \code{image}
+\item \code{size}
+\item \code{width}
+\item \code{height}
+\item \code{colour}
+\item \code{angle}
+\item \code{alpha}
+}
+
+\code{colour} and \code{alpha} are applied per row: \code{colour} tints the image and
+\code{alpha} sets its opacity, so both \code{aes(colour = ...)} and
+\code{aes(alpha = ...)} work. \code{alpha} is an ordinary ggplot2 aesthetic, so its
+default continuous scale maps the data range onto \verb{[0.1, 1]}; add
+\code{scale_alpha_identity()} to pass the values through unchanged.
+}
+
 \examples{
 \dontrun{
 library("ggplot2")
