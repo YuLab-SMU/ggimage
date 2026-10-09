@@ -124,18 +124,22 @@ matters.
 \examples{
 library("ggplot2")
 library("ggimage")
-d <- data.frame(x = c(0.5, 0.52, 0.51),
-                y = c(0.5, 0.51, 0.49),
+d <- data.frame(x = c(0.50, 0.52, 0.51),
+                y = c(0.50, 0.51, 0.49),
                 image = system.file("extdata/Rlogo.png", package = "ggimage"))
-## overlapping images are pushed apart
-ggplot(d, aes(x, y, image = image)) +
-    geom_image_repel(width = 0.1, box.padding = 0.01)
+## the fixed scale matters: with the default limits the three points would
+## be spread over the whole panel and would not overlap at all
+p <- ggplot(d, aes(x, y, image = image)) +
+    scale_x_continuous(limits = c(0, 1)) +
+    scale_y_continuous(limits = c(0, 1))
+## as they are, the images overlap
+p + geom_image(width = 0.12)
+## ... and are pushed apart by geom_image_repel()
+p + geom_image_repel(width = 0.12, box.padding = 0.01)
 ## max.iter = 0 keeps the original coordinates
-ggplot(d, aes(x, y, image = image)) +
-    geom_image_repel(width = 0.1, max.iter = 0)
+p + geom_image_repel(width = 0.12, max.iter = 0)
 ## only move them apart horizontally
-ggplot(d, aes(x, y, image = image)) +
-    geom_image_repel(width = 0.1, direction = "x")
+p + geom_image_repel(width = 0.12, direction = "x")
 }
 \author{
 Guangchuang Yu
