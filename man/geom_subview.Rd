@@ -35,6 +35,21 @@ layer
 \description{
 subview geom
 }
+\details{
+Subviews can be placed in two ways.  With a mapping, the positions and the
+subviews are taken from the data:
+
+\if{html}{\out{<div class="sourceCode">}}\preformatted{geom_subview(aes(x = x, y = y, subview = pie, width = width, height = width),
+             data = df)
+}\if{html}{\out{</div>}}
+
+For one or more subviews given by position, the first argument is read as the
+subview rather than as a mapping:
+
+\if{html}{\out{<div class="sourceCode">}}\preformatted{geom_subview(legend, x = 10, y = 50)
+geom_subview(df$pie, df$x, df$y, width = df$width, height = df$height)
+}\if{html}{\out{</div>}}
+}
 \author{
 guangchuang yu
 }

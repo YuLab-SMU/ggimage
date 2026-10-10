@@ -39,6 +39,23 @@
 ##' @param y y position of subview. This parameter works if mapping and data is not provided
 ##' @param subview subview to plot, if not provided in data and specify by mapping
 ##' @return layer
+##' @details
+##' Subviews can be placed in two ways.  With a mapping, the positions and the
+##' subviews are taken from the data:
+##'
+##' ```
+##' geom_subview(aes(x = x, y = y, subview = pie, width = width, height = width),
+##'              data = df)
+##' ```
+##'
+##' For one or more subviews given by position, the first argument is read as the
+##' subview rather than as a mapping:
+##'
+##' ```
+##' geom_subview(legend, x = 10, y = 50)
+##' geom_subview(df$pie, df$x, df$y, width = df$width, height = df$height)
+##' ```
+##'
 ##' @importFrom ggplot2 annotation_custom
 ##' @importFrom ggplot2 aes_
 ##' @importFrom tibble as_tibble
@@ -57,6 +74,40 @@ geom_subview <- function(mapping = NULL, data = NULL, width=.1, height=.1, x = N
 
     ## this is a hack to support `aes` without `inherit.aes`. mapping and data must be provided.
 
+    if (!is.null(mapping) && !inherits(mapping, c("uneval", "ggplot2::mapping"))) {
+        ## Before the `aes` mapping was supported, the first argument of
+        ## geom_subview() was the subview itself:
+        ##     geom_subview(subview, x, y, width = , height = )
+        ## That form is still the natural one to reach for, and passing a
+        ## subview there used to fail with a message that never mentioned the
+        ## subview, so keep reading the first argument that way.
+        if (!is.null(data) && !is.atomic(data)) {
+            stop("the first argument of geom_subview() is `mapping`, but it ",
+                 "does not look like an aes() mapping.\n",
+                 "  * subviews by position: ",
+                 "geom_subview(subview, x, y, width = , height = )\n",
+                 "  * with a mapping: ",
+                 "geom_subview(aes(x = x, y = y, subview = subview), data = data)",
+                 call. = FALSE)
+        }
+        subview <- mapping
+        mapping <- NULL
+        if (!is.null(data)) {
+            ## the subview was followed by the x and then the y values
+            if (!is.null(x)) {
+                y <- x
+            } else if (is.null(y) && !missing(width)) {
+                ## geom_subview(subview, x, y): with nothing named, the third
+                ## positional argument lands on `width`, so `y` is there and
+                ## `width` goes back to its default (mirrors the signature).
+                y <- width
+                width <- .1
+            }
+            x <- data
+        }
+        data <- NULL
+    }
+
     if (is.null(data)) {
         data <- tibble(x = x, y = y)
     } else if (!inherits(data, 'tbl')) {
@@ -68,13 +119,22 @@ geom_subview <- function(mapping = NULL, data = NULL, width=.1, height=.1, x = N
     }
     mapping <- as.list(mapping)
     if (is.null(mapping$x)) {
-        stop("x aesthetic mapping should be provided")
+        stop("geom_subview() needs an `x` aesthetic.\n",
+             "  * geom_subview(aes(x = x, y = y, subview = subview), data = data)\n",
+             "  * geom_subview(subview = subview, x = x, y = y)",
+             call. = FALSE)
     }
     if (is.null(mapping$y)) {
-        stop("y aesthetic mapping should be provided")
+        stop("geom_subview() needs a `y` aesthetic.\n",
+             "  * geom_subview(aes(x = x, y = y, subview = subview), data = data)\n",
+             "  * geom_subview(subview = subview, x = x, y = y)",
+             call. = FALSE)
     }
     if (is.null(mapping$subview) && is.null(subview)) {
-        stop("subview must be provided")
+        stop("geom_subview() needs a subview.\n",
+             "  * geom_subview(aes(x = x, y = y, subview = subview), data = data)\n",
+             "  * geom_subview(subview = subview, x = x, y = y)",
+             call. = FALSE)
     }
     if (is.null(mapping$subview)) {
         if (!inherits(subview, "list")) {
