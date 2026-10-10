@@ -4,16 +4,50 @@
 \alias{geom_bgimage}
 \title{geom_bgimage}
 \usage{
-geom_bgimage(image)
+geom_bgimage(image, pixel = NULL, x = 0, y = 0, scale = NULL)
 }
 \arguments{
-\item{image}{image file}
+\item{image}{image file, or a magick image object}
+
+\item{pixel}{the pixel of \code{image} to anchor, given as \code{c(col, row)} counted
+from the top-left corner of the image, i.e. \code{col} pixels from the left and
+\code{row} pixels from the top. If \code{NULL} (the default) the image is stretched to
+fill the plot panel and the remaining parameters are ignored.}
+
+\item{x}{x coordinate of the data point that \code{pixel} is anchored to. Only
+used when \code{pixel} is given.}
+
+\item{y}{y coordinate of the data point that \code{pixel} is anchored to. Only
+used when \code{pixel} is given.}
+
+\item{scale}{number of data units per image pixel. Required when \code{pixel} is
+given; it controls the size of the image in data coordinates. To make the
+image \code{w} data units wide, use \code{scale = w / image_info(image)$width}.}
 }
 \value{
 ggplot
 }
 \description{
 add image as background to plot panel.
+}
+\examples{
+library("ggplot2")
+library("ggimage")
+
+img <- system.file("extdata/Rlogo.png", package = "ggimage")
+d <- data.frame(x = c(1, 2, 3), y = c(1, 2, 1.5))
+p <- ggplot(d, aes(x, y)) +
+    scale_x_continuous(limits = c(0, 4)) +
+    scale_y_continuous(limits = c(0, 4))
+
+## by default the image is stretched to fill the panel
+p + geom_bgimage(img) + geom_point()
+
+## with `pixel`, the image is placed in data coordinates instead: the
+## bottom-left pixel is anchored to the origin, and `scale` sets the size
+info <- magick::image_info(magick::image_read(img))
+p + geom_bgimage(img, pixel = c(1, info$height), x = 0, y = 0,
+                 scale = 4 / info$width) + geom_point()
 }
 \author{
 Guangchuang Yu
