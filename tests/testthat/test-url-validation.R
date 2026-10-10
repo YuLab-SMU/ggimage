@@ -183,7 +183,7 @@ test_that("remote wrappers share deduplicating URL validation", {
     )
     expect_identical(
         ggimage:::emoji(c("1f600", "1f600")),
-        c("https://twemoji.maxcdn.com/72x72/1f600.png", "https://twemoji.maxcdn.com/72x72/1f600.png")
+        c("https://raw.githubusercontent.com/jdecked/twemoji/main/assets/72x72/1f600.png", "https://raw.githubusercontent.com/jdecked/twemoji/main/assets/72x72/1f600.png")
     )
     expect_identical(
         ggimage:::pokemon(c("pikachu", "pikachu")),
@@ -198,7 +198,7 @@ test_that("remote wrappers share deduplicating URL validation", {
         c(
             "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/US.png",
             "https://ionicons.com/ionicons/svg/add.svg",
-            "https://twemoji.maxcdn.com/72x72/1f600.png",
+            "https://raw.githubusercontent.com/jdecked/twemoji/main/assets/72x72/1f600.png",
             "https://raw.githubusercontent.com/Templarian/slack-emoji-pokemon/master/emojis/pikachu.png"
         )
     )

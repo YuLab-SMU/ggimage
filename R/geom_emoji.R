@@ -12,7 +12,11 @@ geom_emoji <- function(mapping=NULL, data=NULL, inherit.aes=TRUE,
 }
 
 emoji <- function(emoji) {
-    url <- paste0('https://twemoji.maxcdn.com/72x72/', emoji, ".png")
+    ## twemoji.maxcdn.com was decommissioned: it still answers 200 but with a
+    ## 35-byte text file, so the download is not a valid PNG and the layer dies
+    ## with "improper image header" while the grob is being built.
+    url <- paste0('https://raw.githubusercontent.com/jdecked/twemoji/main/assets/72x72/',
+                  emoji, ".png")
 
     check_url(url)
 }
