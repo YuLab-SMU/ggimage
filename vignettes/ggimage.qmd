@@ -134,9 +134,8 @@ p + geom_flag(y = -2, aes(image = code)) +
 ## geom_icon
 
 ```{r geom-icon}
-#| eval: false
-d$icon <- sample(c("ios-power", "ios-wifi", "ios-pie"), 10, replace = TRUE)
-ggplot(d, aes(x, y)) + geom_icon(aes(image = icon))
+d$icon <- sample(c("power", "wifi", "pie-chart"), 10, replace = TRUE)
+ggplot(d, aes(x, y)) + geom_icon(aes(image = icon), size = .1)
 ```
 
 see also <https://ionicons.com/>.
