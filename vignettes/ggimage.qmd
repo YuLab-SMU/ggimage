@@ -1,0 +1,159 @@
+---
+title: "Use image in ggplot2"
+vignette: >
+  %\VignetteIndexEntry{Use image in ggplot2}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+format:
+  html:
+    toc: true
+    theme: cosmo
+    highlight: github
+---
+
+`ggimage` lets you use images in `ggplot2`. An image can be a file on disk, a
+`magick` image, or a URL, and it can be used as a point glyph, as a background,
+or as an inset.
+
+```{r setup}
+#| echo: false
+#| results: hide
+#| message: false
+library("ggplot2")
+library("ggimage")
+```
+
+## geom_image
+
+```{r geom-image}
+#| warning: false
+set.seed(2017-02-21)
+img <- list.files(system.file("extdata", package = "ggimage"),
+                  pattern = "png", full.names = TRUE)
+d <- data.frame(x = rnorm(10),
+                y = rnorm(10),
+                image = sample(img, size = 10, replace = TRUE))
+
+ggplot(d, aes(x, y)) + geom_image(aes(image = image), size = .05)
+ggplot(d, aes(x, y)) + geom_image(aes(image = image), size = .05, by = "height")
+
+ggplot(d, aes(x, y)) + geom_image(image = d$image[1])
+d$size <- seq(.05, .15, length.out = 10)
+ggplot(d, aes(x, y)) + geom_image(aes(image = image, size = I(size)))
+
+ggplot(d, aes(x, y)) + geom_image(aes(image = image), color = "firebrick")
+```
+
+## geom_bgimage
+
+Use an image as the background of the plot panel.
+
+```{r geom-bgimage}
+img <- system.file("extdata/Rlogo.png", package = "ggimage")
+
+ggplot(iris, aes(Petal.Length, Petal.Width)) +
+    geom_bgimage(img) + geom_point()
+```
+
+By default the image is stretched to fill the panel. Give `pixel` to place the
+image in data coordinates instead: the chosen pixel of the image -- `c(col, row)`
+counted from the top-left corner -- is anchored to the data point `(x, y)`, and
+`scale` sets the number of data units per image pixel. The anchoring does not
+depend on the size of the image or of the panel.
+
+```{r geom-bgimage-anchor}
+#| warning: false
+info <- magick::image_info(magick::image_read(img))
+
+ggplot(iris, aes(Petal.Length, Petal.Width)) +
+    geom_bgimage(img, pixel = c(1, info$height), x = 0, y = 0,
+                 scale = 2.5 / info$width) +
+    geom_point() +
+    scale_x_continuous(limits = c(-0.4, 7), expand = c(0, 0)) +
+    scale_y_continuous(limits = c(-0.3, 2.6), expand = c(0, 0)) +
+    coord_fixed()
+```
+
+## geom_image_repel
+
+`geom_image_repel()` pushes overlapping images apart, so that the images stay
+readable when the points are close together.
+
+```{r geom-image-repel}
+#| warning: false
+d2 <- data.frame(x = c(.50, .52, .51), y = c(.50, .51, .49))
+p <- ggplot(d2, aes(x, y, image = img)) +
+    scale_x_continuous(limits = c(0, 1)) +
+    scale_y_continuous(limits = c(0, 1))
+
+## as they are, the images overlap
+p + geom_image(width = .12)
+
+## ... and are pushed apart by geom_image_repel()
+p + geom_image_repel(width = .12)
+```
+
+## geom_pokemon
+
+```{r geom-pokemon}
+ggplot(d, aes(x, y)) + geom_pokemon(aes(image = ifelse(x > 0, "pikachu", "tauros")), size = .1)
+```
+
+## geom_emoji
+
+```{r geom-emoji}
+set.seed(123)
+iris2 <- iris[sample(1:nrow(iris), 30), ]
+model <- lm(Petal.Length ~ Sepal.Length, data = iris2)
+iris2$fitted <- predict(model)
+
+ggplot(iris2, aes(x = Sepal.Length, y = Petal.Length)) +
+  geom_linerange(aes(ymin = fitted, ymax = Petal.Length),
+                 colour = "purple") +
+  geom_abline(intercept = model$coefficients[1],
+              slope = model$coefficients[2]) +
+  geom_emoji(aes(image = ifelse(abs(Petal.Length - fitted) > 0.5, "1f622", "1f600")))
+```
+
+## geom_phylopic
+
+Please visit <https://yulab-smu.github.io/treedata-book/chapter8.html#phylopic> for more details.
+
+## geom_flag
+
+```{r geom-flag}
+f <- system.file("extdata/medals.txt", package = "ggimage")
+medals <- read.table(f, header = TRUE)
+p <- ggplot(medals, aes(Country, count)) + geom_col(aes(fill = medal), width = .8)
+
+p + geom_flag(y = -2, aes(image = code)) +
+    coord_flip() + expand_limits(y = -2) +
+    scale_fill_manual(values = c("Gold" = "gold", "Bronze" = "#cd7f32", "Silver" = "#C0C0C0"))
+```
+
+## geom_icon
+
+```{r geom-icon}
+#| eval: false
+d$icon <- sample(c("ios-power", "ios-wifi", "ios-pie"), 10, replace = TRUE)
+ggplot(d, aes(x, y)) + geom_icon(aes(image = icon))
+```
+
+see also <https://ionicons.com/>.
+
+## geom_subview
+
+```{r geom-subview}
+library(tibble)
+dd <- data.frame(x = LETTERS[1:3], y = 1:3)
+pie <- ggplot(dd, aes(x = 1, y, fill = x)) + geom_bar(stat = "identity", width = 1) +
+    coord_polar(theta = "y") +
+    theme_void() + theme(legend.position = "none") + theme_transparent()
+
+df <- tibble(x = sample(2:9),
+             y = sample(2:9),
+             width = sample(seq(0.5, 3, length.out = length(x))),
+             pie = list(pie))
+p <- ggplot(data = data.frame(x = c(0, 10), y = c(0, 10)), aes(x, y)) + geom_blank()
+p + geom_subview(aes(x = x, y = y, subview = pie, width = width, height = width), data = df)
+```

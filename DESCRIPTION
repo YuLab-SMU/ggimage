@@ -33,8 +33,10 @@ Suggests:
     ggtree,
     gridGraphics,
     httr,
+    quarto,
     rsvg,
     testthat (>= 3.0.0)
+VignetteBuilder: quarto
 ByteCompile: true
 License: Artistic-2.0
 URL: https://github.com/YuLab-SMU/ggimage
