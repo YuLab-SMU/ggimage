@@ -162,6 +162,49 @@ test_that("failed URL validation is not sticky in the cache", {
     expect_identical(calls, 2L)
 })
 
+test_that("worldcup2018() flags come from the host flag() uses", {
+    ## Regression: the 32 World Cup flags used to be hard-coded to
+    ## upload.wikimedia.org, which is unreachable from some networks, so
+    ## geom_worldcup2018() silently drew nothing there.  They must come from the
+    ## same source as flag(), and building them must not cost a request per flag.
+    local_mocked_bindings(
+        url.exists = function(...) stop("worldcup2018() must not validate URLs"),
+        .package = "ggimage"
+    )
+
+    codes <- ggimage:::list.worldcup2018()
+    expect_length(codes, 32L)
+    ## the mapping below is only meaningful while England is in the list
+    expect_true("EN" %in% codes)
+
+    urls <- ggimage:::worldcup2018(codes)
+    expected <- codes
+    expected[expected == "EN"] <- "GB-ENG"   # England has no ISO 3166-1 code
+
+    expect_length(urls, 32L)
+    expect_identical(names(urls), codes)
+    expect_identical(
+        unname(urls),
+        paste0(
+            "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/",
+            expected, ".png"
+        )
+    )
+    expect_false(any(grepl("wikimedia", urls, fixed = TRUE)))
+})
+
+test_that("worldcup2018() maps unknown and missing codes to NA", {
+    expect_true(is.na(ggimage:::worldcup2018("XX")))
+    expect_true(is.na(ggimage:::worldcup2018(NA_character_)))
+    expect_identical(
+        unname(ggimage:::worldcup2018(c("AR", "XX"))),
+        c(
+            "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/AR.png",
+            NA_character_
+        )
+    )
+})
+
 test_that("remote wrappers share deduplicating URL validation", {
     checked <- character()
     exists <- function(url, ...) {

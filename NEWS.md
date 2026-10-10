@@ -2,6 +2,7 @@
 
 + `geom_bgimage()` accepts `pixel`, `x`, `y` and `scale` to place the image in data coordinates: the chosen pixel of the image is anchored to a data point, and the placement does not depend on the size of the image or of the panel (2026-10-10, Sat, #25)
 + `geom_emoji()` downloads from a live twemoji CDN; the previous host answered with a 35-byte text placeholder and an HTTP 200 status, so every emoji glyph failed to render
++ `geom_worldcup2018()` now takes its 32 flags from the same host as `geom_flag()`; the hard-coded `upload.wikimedia.org` URLs it used before are unreachable from some networks, which made the function draw nothing there
 + rebuild the vignette as a Quarto document and drop the old `.Rmd`; the `geom_icon()` example runs again with the current Ionicons names
 + document the aesthetics supported by `geom_image()` and `geom_image_repel()`, and make the `geom_image_repel()` example actually overlap
 
