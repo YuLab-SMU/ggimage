@@ -4,6 +4,7 @@
 + `geom_emoji()` downloads from a live twemoji CDN; the previous host answered with a 35-byte text placeholder and an HTTP 200 status, so every emoji glyph failed to render
 + `geom_worldcup2018()` now takes its 32 flags from the same host as `geom_flag()`; the hard-coded `upload.wikimedia.org` URLs it used before are unreachable from some networks, which made the function draw nothing there
 + `geom_subview()` reads a subview passed as its first argument again, so `geom_subview(legend, x = 10, y = 50)` works as the published examples show; that call used to fail with "x aesthetic mapping should be provided", which never mentioned the subview (#29)
++ rasterise `.eps`, `.ps` and `.pdf` at 300 dpi instead of ImageMagick's 72 dpi default, which is what made an `.eps` look grainy; the extension is matched case-insensitively, and `.pdf` no longer goes through a `pdftools`-backed reader, which failed with "there is no package called 'pdftools'" wherever that optional dependency is not installed (#30)
 + rebuild the vignette as a Quarto document and drop the old `.Rmd`; the `geom_icon()` example runs again with the current Ionicons names
 + document the aesthetics supported by `geom_image()` and `geom_image_repel()`, and make the `geom_image_repel()` example actually overlap
 

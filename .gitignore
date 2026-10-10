@@ -7,3 +7,6 @@
 CRAN-SUBMISSION
 .workbuddy-ai/
 Rplots.pdf
+*.tar.gz
+tests/testthat/_problems/
+tests/testthat/testthat-problems.rds

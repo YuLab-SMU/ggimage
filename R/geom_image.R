@@ -758,6 +758,25 @@ apply_image_opacity <- function(img, opacity) {
                    channel = "alpha")
 }
 
+## Vector formats carry no resolution of their own, so the reader has to pick
+## one, and ImageMagick's default of 72 dpi is what made an `.eps` look grainy.
+## Ask for 300 dpi instead.  `image_read()` renders every page of a PDF through
+## its Ghostscript delegate, so the `pdftools`-backed reader this code used for
+## `.pdf` bought nothing and broke the format wherever `pdftools` is missing,
+## which is the common case -- magick only suggests it.
+.vector_density <- 300
+
+## Dispatch on the extension, case-insensitively: `.EPS` from a Windows export
+## used to miss the vector branches and land on the 72 dpi default.
+.read_image_file <- function(img) {
+    switch(tolower(tools::file_ext(img)),
+           "svg" = magick::image_read_svg(img),
+           "pdf" = ,
+           "eps" = ,
+           "ps" = magick::image_read(img, density = .vector_density),
+           magick::image_read(img))
+}
+
 prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE,
                           image_fun_key = NULL) {
   tryCatch({
@@ -776,10 +795,7 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
     if (is.null(cached_img)) {
       if (!methods::is(img, "magick-image")) {
         if (is.character(img)) {
-          cached_img <- switch(tools::file_ext(img),
-                               "svg" = magick::image_read_svg(img),
-                               "pdf" = magick::image_read_pdf(img),
-                               magick::image_read(img))
+          cached_img <- .read_image_file(img)
         } else {
           warning("Unexpected img type: ", class(img))
           return(NULL)
