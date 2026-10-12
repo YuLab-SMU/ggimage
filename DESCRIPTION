@@ -34,12 +34,17 @@ Imports:
     yulab.utils (>= 0.1.3)
 Suggests:
     ape,
+    ComplexHeatmap,
     ggtree,
     gridGraphics,
     httr,
+    lattice,
+    patchwork,
+    pheatmap,
     quarto,
     rsvg,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    UpSetR
 VignetteBuilder: quarto
 ByteCompile: true
 License: Artistic-2.0

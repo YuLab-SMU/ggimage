@@ -26,6 +26,14 @@ other layer, scale, facet or theme. The geoms in this package differ only in
 #| message: false
 library("ggplot2")
 library("ggimage")
+
+## TRUE only when every named package is installed.  Used to skip the chunks
+## that demonstrate optional graphics systems rather than fail on them.
+has <- function(...) {
+    all(vapply(c(...), requireNamespace, logical(1), quietly = TRUE))
+}
+## Computed here because a chunk option cannot call a function with commas.
+has_systems <- has("lattice", "pheatmap", "ComplexHeatmap", "UpSetR", "patchwork")
 ```
 
 ## Arguments shared by the image layers
@@ -215,6 +223,113 @@ plot underneath shows through instead of being hidden by a grey panel.
 The subview may also be passed as the first argument, which is the form the
 published examples use: `geom_subview(pie, x = 2, y = 2)` draws one inset at
 `(2, 2)`. In that form `width` and `height` default to `0.1`.
+
+## Sub-views from other graphics systems
+
+`geom_subview()` accepts anything that `ggplotify::as.grob()` can turn into a
+grid grob, so an inset does not have to be a `ggplot`. That widens the range of
+plots that can be used as a sub-view: a base graphics plot, a `lattice` panel, a
+heatmap, an UpSet plot, or a composite of several plots.
+
+| sub-view | how to pass it |
+| --- | --- |
+| base graphics | a `function()` that draws it, or a one-sided `formula` such as `~ plot(x, y)` |
+| recorded plot | `function() replayPlot(rec)` |
+| `grid` grob | the grob itself |
+| `ggplot`, `ggtree` | the plot object |
+| `lattice` | the `trellis` object |
+| `pheatmap` | the `pheatmap` object, built with `silent = TRUE` |
+| `ComplexHeatmap` | the `Heatmap` object |
+| `UpSetR` | the `upset` object |
+| `patchwork`, `aplot` | the composite object |
+| `magick` | the image |
+
+A base plot is a side effect on a graphics device rather than an object, so it
+has to be handed over as something that can be *drawn*: a function, or a formula
+whose right-hand side is the plotting call.
+
+```{r subview-base}
+#| warning: false
+#| fig-width: 7
+#| fig-height: 4.8
+set.seed(2026)
+svd <- data.frame(x = rep(c(0, 2, 4), 2), y = rep(c(0, 2), each = 3))
+svd$hist <- lapply(1:6, function(i) function() {
+    hist(rnorm(300, mean = i), main = "", xlab = "", ylab = "",
+         col = i, border = "white", axes = FALSE)
+})
+ggplot(svd, aes(x, y)) + geom_point(size = 2) +
+    geom_subview(aes(x = x, y = y, subview = hist), data = svd,
+                 width = 1.7, height = 1.7) +
+    xlim(-1.2, 5.2) + ylim(-1.2, 3.2) + coord_fixed() + theme_bw()
+```
+
+The same `as.grob()` conversion runs for every row, so one layer can hold plots
+built by different packages. (This chunk is skipped when those packages are not
+installed.)
+
+```{r subview-systems, eval=has_systems}
+#| warning: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 6.9
+set.seed(1)
+svmat <- matrix(rnorm(80), 8, 10)
+
+svinsets <- list(
+    "base graphics"  = function() {
+        plot(rnorm(50), type = "l", axes = FALSE, ann = FALSE); box()
+    },
+    "lattice"        = lattice::xyplot(mpg ~ wt, data = mtcars, pch = 19, cex = .5),
+    "pheatmap"       = pheatmap::pheatmap(svmat, silent = TRUE),
+    "ComplexHeatmap" = ComplexHeatmap::Heatmap(svmat, show_column_names = FALSE,
+                                               show_row_names = FALSE),
+    "UpSetR"         = UpSetR::upset(UpSetR::fromList(list(a = 1:5, b = 3:8, c = 5:9)),
+                                     order.by = "freq"),
+    "patchwork"      = patchwork::wrap_plots(ggplot(mtcars, aes(wt, mpg)) + geom_point(),
+                                             ggplot(mtcars, aes(factor(cyl))) + geom_bar())
+)
+
+svx <- rep(1:3, 2)
+svy <- rep(c(1, -.3), each = 3)
+svd <- data.frame(x = svx, y = svy)
+svd$subview <- unname(svinsets)
+
+ggplot(svd, aes(x, y)) + geom_blank() +
+    geom_subview(aes(x = x, y = y, subview = subview), data = svd,
+                 width = .8, height = .8) +
+    geom_text(aes(x, y, label = label),
+              data = data.frame(x = svx, y = svy - .55, label = names(svinsets)),
+              vjust = 1, size = 3.2) +
+    xlim(.5, 3.5) + ylim(-1.15, 1.45) + coord_fixed() + theme_void()
+```
+
+Two things are worth knowing before relying on this.
+
+**The panel still needs a scale.** `geom_subview()` draws with
+`annotation_custom()`, which carries no `x` or `y` aesthetic of its own. When it
+is the only layer in the plot, the panel keeps its default `(0, 1)` range and
+only the insets that fall inside that range are drawn. Add a `geom_blank()`, a
+`geom_point()` or a `geom_text()` -- as above -- or set the limits explicitly.
+
+**A sub-view given as a function is drawn afresh on every draw.** The conversion
+happens when the plot is drawn, so the function has to be able to run on its own,
+and the usual closure trap applies: build the list of functions with `lapply()`
+rather than a `for` loop, or every function will use the last value of the loop
+variable.
+
+For a plot that already exists as a recorded plot, replay it inside a function:
+
+```r
+dev.control(displaylist = "enable")   # otherwise the recording comes out empty
+plot(1:10)
+rec <- recordPlot()
+
+df$subview <- list(function() replayPlot(rec))
+```
+
+`recordPlot()` returns an empty recording unless the display list was enabled,
+which is why `dev.control()` is there.
 
 ## Images as backgrounds
 
