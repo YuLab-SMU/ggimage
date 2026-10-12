@@ -5,7 +5,7 @@
 + `geom_worldcup2018()` now takes its 32 flags from the same host as `geom_flag()`; the hard-coded `upload.wikimedia.org` URLs it used before are unreachable from some networks, which made the function draw nothing there
 + `geom_subview()` reads a subview passed as its first argument again, so `geom_subview(legend, x = 10, y = 50)` works as the published examples show; that call used to fail with "x aesthetic mapping should be provided", which never mentioned the subview (#29)
 + rasterise `.eps`, `.ps` and `.pdf` at 300 dpi instead of ImageMagick's 72 dpi default, which is what made an `.eps` look grainy; the extension is matched case-insensitively, and `.pdf` no longer goes through a `pdftools`-backed reader, which failed with "there is no package called 'pdftools'" wherever that optional dependency is not installed (#30)
-+ rebuild the vignette as a Quarto document and drop the old `.Rmd`; the `geom_icon()` example runs again with the current Ionicons names
++ rebuild the vignette as a Quarto document and drop the old `.Rmd`, and document the geoms and helpers it had been missing: `ggbackground()`, `geom_worldcup2018()`, `geom_phylopic()` with `phylopic_uid()` and `download_phylopic()`, the `list.*()` helpers, the interactive geoms, legend keys, `theme_transparent()` and `theme_nothing()`, `image_read2()`, `ggpreview()`, and the image cache; the `geom_icon()` example runs again with the current Ionicons names
 + document the aesthetics supported by `geom_image()` and `geom_image_repel()`, and make the `geom_image_repel()` example actually overlap
 + describe the package more fully in `Title` and `Description`, and take both from `DESCRIPTION` when rendering the README so that the two cannot drift apart
 
