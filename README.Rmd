@@ -7,7 +7,7 @@ html_preview: false
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# ggimage: Use Image in 'ggplot2'
+# ggimage: `r read.dcf("DESCRIPTION", "Title")[1,1]`
 
 
 [![CRAN_Status_Badge](http://www.r-pkg.org/badges/version/ggimage?color=green)](https://cran.r-project.org/package=ggimage)
@@ -17,7 +17,7 @@ html_preview: false
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.344625.svg)](https://doi.org/10.5281/zenodo.344625)
 
 
-Supports image files and graphic objects to be visualized in 'ggplot2' graphic system.
+`r read.dcf("DESCRIPTION", "Description")[1,1]`
 
 
 ## :writing_hand: Authors

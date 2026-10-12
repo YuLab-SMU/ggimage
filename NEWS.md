@@ -7,6 +7,7 @@
 + rasterise `.eps`, `.ps` and `.pdf` at 300 dpi instead of ImageMagick's 72 dpi default, which is what made an `.eps` look grainy; the extension is matched case-insensitively, and `.pdf` no longer goes through a `pdftools`-backed reader, which failed with "there is no package called 'pdftools'" wherever that optional dependency is not installed (#30)
 + rebuild the vignette as a Quarto document and drop the old `.Rmd`; the `geom_icon()` example runs again with the current Ionicons names
 + document the aesthetics supported by `geom_image()` and `geom_image_repel()`, and make the `geom_image_repel()` example actually overlap
++ describe the package more fully in `Title` and `Description`, and take both from `DESCRIPTION` when rendering the README so that the two cannot drift apart
 
 ## ggimage 0.3.6
 

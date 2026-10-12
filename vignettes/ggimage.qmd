@@ -1,7 +1,7 @@
 ---
-title: "Use image in ggplot2"
+title: "Use images in ggplot2"
 vignette: >
-  %\VignetteIndexEntry{Use image in ggplot2}
+  %\VignetteIndexEntry{Use images in ggplot2}
   %\VignetteEngine{quarto::html}
   %\VignetteEncoding{UTF-8}
 format:
