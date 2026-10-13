@@ -333,13 +333,20 @@ test_that("nudge shifts the resolved layout without changing the separations", {
 test_that("hjust anchors the repulsion box the same way the image is drawn", {
     skip_without_repel_api()
 
-    d <- repel_data(x = c(0.5, 0.5), y = c(0.5, 0.5), width = 0.2, height = 0.2)
-    centered <- repel_layout_of(repel_plot(
-        d, repel_geom_fun()(width = 0.2, height = 0.2, use_cache = FALSE)))
-    left <- repel_layout_of(repel_plot(
-        d, repel_geom_fun()(width = 0.2, height = 0.2, hjust = 0, use_cache = FALSE)))
-    right <- repel_layout_of(repel_plot(
-        d, repel_geom_fun()(width = 0.2, height = 0.2, hjust = 1, use_cache = FALSE)))
+    ## imageGrob() puts the CENTRE of the drawn image at x + (0.5 - hjust) *
+    ## width, so the repulsion box has to be anchored on that shifted centre.
+    ## Equal widths only make the old centred-box assumption harmless (the
+    ## whole layout becomes a rigid translation), so both layouts are checked:
+    ## the uniform one for the anchor-independence of the slack, and a
+    ## per-row-width one for the real contract -- the DRAWN images separate.
+    uniform <- repel_data(x = c(0.5, 0.5), y = c(0.5, 0.5),
+                          width = 0.2, height = 0.2)
+    layout_of <- function(d, ...) repel_layout_of(repel_plot(
+        d, repel_geom_fun()(use_cache = FALSE, ...)))
+
+    centered <- layout_of(uniform, width = 0.2, height = 0.2)
+    left <- layout_of(uniform, width = 0.2, height = 0.2, hjust = 0)
+    right <- layout_of(uniform, width = 0.2, height = 0.2, hjust = 1)
 
     ## hjust reaches the drawn images: imageGrob stores the *centre* of the
     ## drawn box, so an anchor change translates every centre by +-width/2
@@ -347,14 +354,50 @@ test_that("hjust anchors the repulsion box the same way the image is drawn", {
     shift_right <- right$x - centered$x
     expect_equal(shift_left, -shift_right, tolerance = 1e-6)
     expect_gt(shift_left[1], 0)
-    ## the pairwise slack does not depend on the anchor, and the resolved
-    ## boxes still do not overlap once measured around their own centre
+    ## for a uniform width the repulsion box rides along with the drawn image,
+    ## so the pairwise slack does not depend on the anchor
     expect_equal(repel_pair_gaps(left)$gap, repel_pair_gaps(centered)$gap,
                  tolerance = 1e-6)
     expect_equal(repel_pair_gaps(right)$gap, repel_pair_gaps(centered)$gap,
                  tolerance = 1e-6)
+    ## and the drawn images, measured where they actually end up, separate
     expect_equal(repel_overlap_count(left), 0L)
     expect_equal(repel_overlap_count(right), 0L)
+
+    ## per-row widths: the anchors of a pair no longer move together, so a
+    ## solver centring the boxes on the anchor believes it separated images
+    ## that are still drawn on top of each other. repel_layout_of() returns
+    ## grob coordinates, which ARE the drawn centres, so repel_overlap_count()
+    ## measures the real drawn boxes. width/height are mapped as aesthetics
+    ## here, which is the only way a row-specific box reaches the layer.
+    mixed <- repel_data(x = c(0.30, 0.45), y = c(0.5, 0.5),
+                        width = c(0.30, 0.10), height = c(0.2, 0.2))
+    mixed_plot <- function(hj) {
+        ggplot2::ggplot(mixed, ggplot2::aes(x, y, image = image,
+                                            width = width, height = height)) +
+            repel_geom_fun()(hjust = hj, direction = "x", use_cache = FALSE) +
+            repel_square_scales()
+    }
+    ## premise: plain geom_image() draws this pair overlapping
+    ## the wide row anchored left of the narrow one overlaps it when the
+    ## images hang to the right of the anchor (hjust = 0); at hjust = 1 the
+    ## images hang to the left and this particular pair is already clear, but
+    ## the box the solver reasons about is still the wrong one
+    stacked <- repel_layout_of(
+        ggplot2::ggplot(mixed, ggplot2::aes(x, y, image = image,
+                                            width = width, height = height)) +
+            geom_image(hjust = 0, use_cache = FALSE) +
+            repel_square_scales())
+    expect_equal(repel_overlap_count(stacked), 1L)
+    for (hj in c(0, 1)) {
+        mixed_layout <- repel_layout_of(mixed_plot(hj))
+        expect_equal(nrow(mixed_layout), 2L)
+        expect_equal(mixed_layout$width, c(0.30, 0.10), tolerance = 1e-9)
+        expect_equal(repel_overlap_count(mixed_layout), 0L,
+                     info = paste0("hjust = ", hj))
+        gaps <- repel_pair_gaps(mixed_layout)
+        expect_gt(gaps$gap[gaps$i == 1L & gaps$j == 2L], 0)
+    }
 })
 
 test_that("single row and empty input are handled", {
@@ -465,11 +508,19 @@ test_that("large dense layouts stay finite and deterministic", {
     skip_without_repel_api()
 
     solve <- function(n, direction = "both") {
-        ggimage:::repel_boxes(
-            x = rep(0.5, n), y = rep(0.5, n),
-            width = rep(0.1, n), height = rep(0.1, n),
-            max.iter = 100, force = 0.1, direction = direction
+        ## these sizes are chosen precisely to exhaust the fixed cleanup cap, so
+        ## a partially-resolved layout -- and its one warning -- are part of what
+        ## this test pins down; naming the warning here also immunises the test
+        ## if the suite ever runs with warnings escalated to errors
+        expect_warning(
+            layout <- ggimage:::repel_boxes(
+                x = rep(0.5, n), y = rep(0.5, n),
+                width = rep(0.1, n), height = rep(0.1, n),
+                max.iter = 100, force = 0.1, direction = direction
+            ),
+            "only be partially resolved"
         )
+        layout
     }
 
     ## These sizes exercise the cleanup cap without asserting wall-clock time.

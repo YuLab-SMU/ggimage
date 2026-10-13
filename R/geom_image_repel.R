@@ -183,7 +183,8 @@ GeomImageRepel <- ggproto("GeomImageRepel", GeomImage,
                                   width = width, height = height,
                                   image_fun = image_fun, use_cache = use_cache,
                                   max.iter = max.iter, force = force,
-                                  box.padding = box.padding, direction = direction
+                                  box.padding = box.padding,
+                                  direction = direction, hjust = hjust
                               )
 
                               GeomImage$draw_grobs(data, panel_params, coord, by,
@@ -235,13 +236,32 @@ panel_aspect_ratio <- function(coord, panel_params) {
     as.numeric(ar)
 }
 
+## the horizontal shift `imageGrob()` applies between the row's anchor `x` and
+## the CENTRE of the drawn image: `hjust = 0`/`"left"` puts the image to the
+## right of the anchor (centre at `x + width/2`), `hjust = 1`/`"right"` to the
+## left (`x - width/2`), and anything else -- including the default 0.5 --
+## leaves the centre on the anchor. The spellings are resolved exactly as
+## `imageGrob()` does (numeric and string comparisons on the same vector).
+## Non-scalar or `NA` `hjust` values cannot be drawn (`imageGrob()` would fail
+## on the `if()` itself), so they are treated as "no shift" here.
+image_repel_hjust_shift <- function(width, hjust) {
+    left <- isTRUE(hjust == 0) || isTRUE(hjust == "left")
+    right <- isTRUE(hjust == 1) || isTRUE(hjust == "right")
+    if (!left && !right) {
+        return(rep(0, length.out = length(width)))
+    }
+    if (left) width / 2 else -width / 2
+}
+
 ## bounding boxes (native panel units, `box.padding` included) of the images of
 ## an already transformed `data`, following the rules of `imageGrob()`.
 ## `keep` is FALSE for images that do not take part in the repulsion, i.e.
 ## images without a size (`size = Inf`) and images that cannot be loaded.
+## `shift` is the `hjust` displacement `imageGrob()` will apply to that row, so
+## that `x + shift` is the centre of the box the solver has to separate.
 image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
                               width = NULL, height = NULL, image_fun = NULL,
-                              use_cache = TRUE, box.padding = 0) {
+                              use_cache = TRUE, box.padding = 0, hjust = 0.5) {
     n <- nrow(data)
     explicit_width <- resolve_image_dimension(
         if ("width" %in% names(data)) data$width else NULL, width, n
@@ -253,7 +273,8 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
     boxes <- data.frame(
         width = rep(NA_real_, n),
         height = rep(NA_real_, n),
-        keep = rep(FALSE, n)
+        keep = rep(FALSE, n),
+        shift = rep(0, n)
     )
     if (n == 0L) {
         return(boxes)
@@ -307,6 +328,11 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
         boxes$keep[i] <- TRUE
     }
 
+    ## the shift is relative to the width that is actually *drawn*, which is the
+    ## solver box without `box.padding`
+    kept <- boxes$keep
+    boxes$shift[kept] <- image_repel_hjust_shift(
+        boxes$width[kept] - box.padding, hjust)
     boxes
 }
 
@@ -456,9 +482,21 @@ repel_boxes_sweep <- function(x, y, width, height, move_x, move_y, force,
 }
 
 
+## Hard cap for the clearance cleanup below. It is deliberately fixed rather
+## than scaled with `n`: a dense cluster can otherwise spend O(n^3) time in the
+## sweep even after the force iterations have already converged. A layout that
+## still overlaps after this many sweeps is only *partially* resolved and the
+## user is warned (once per call), because the residual overlap would
+## otherwise be drawn with no signal at all.
+repel_cleanup_limit <- 256L
+
 ## Deterministic pairwise solver kept isolated for direct geometry testing.
+## `cleanup.limit` is internal and exists so that a test can reach the cap
+## deterministically without building a grid dense enough to exhaust the
+## default; production callers leave it at `repel_cleanup_limit`.
 repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
-                        direction = "both", broad.phase = TRUE) {
+                        direction = "both", broad.phase = TRUE,
+                        cleanup.limit = repel_cleanup_limit) {
     n <- length(x)
     if (n < 2L || max.iter <= 0L || force <= 0) {
         return(list(x = x, y = y))
@@ -488,7 +526,12 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
     if (max.iter >= 10L && overlapping) {
         clearance <- 1e-4
         overlap_tol <- 1e-12
-        cleanup_limit <- 256L
+        cleanup_limit <- check_repel_count(cleanup.limit, "cleanup.limit")
+        if (cleanup_limit < 1L) {
+            stop("`cleanup.limit` must be at least 1, not ",
+                 format(cleanup_limit), ".", call. = FALSE)
+        }
+        residual_overlap <- 0
         for (cleanup in seq_len(cleanup_limit)) {
             sweep <- repel_boxes_sweep(
                 x, y, width, height, move_x, move_y, 1, broad.phase,
@@ -496,7 +539,20 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
             )
             x <- sweep$x
             y <- sweep$y
-            if (!sweep$overlapping || sweep$max_overlap <= overlap_tol) break
+            residual_overlap <- if (sweep$overlapping) sweep$max_overlap else 0
+            if (residual_overlap <= overlap_tol) break
+        }
+        ## The loop ends on the last sweep either way, so a residual above the
+        ## tolerance here means the very last sweep still found overlap: the
+        ## cap was exhausted. One warning for the whole call, never per sweep.
+        if (residual_overlap > overlap_tol) {
+            warning("geom_image_repel(): the layout could only be partially ",
+                    "resolved after ", format(cleanup_limit, scientific = FALSE),
+                    " cleanup sweeps; ",
+                    format(signif(residual_overlap, 4), scientific = FALSE),
+                    " panel units of overlap remain between the closest pair. ",
+                    "Increase `max.iter` or `force`, or reduce `box.padding`, ",
+                    "to resolve it.", call. = FALSE)
         }
     }
 
@@ -506,7 +562,8 @@ repel_boxes <- function(x, y, width, height, max.iter = 100L, force = 0.1,
 repel_image_data <- function(data, panel_params, coord, by = "width", asp = 1,
                              width = NULL, height = NULL, image_fun = NULL,
                              use_cache = TRUE, max.iter = 100L, force = 0.1,
-                             box.padding = 0, direction = "both") {
+                             box.padding = 0, direction = "both",
+                             hjust = 0.5) {
     if (is.null(data) || nrow(data) == 0L) {
         return(data)
     }
@@ -514,7 +571,7 @@ repel_image_data <- function(data, panel_params, coord, by = "width", asp = 1,
     boxes <- image_repel_boxes(data, panel_params, coord, by = by, asp = asp,
                                width = width, height = height,
                                image_fun = image_fun, use_cache = use_cache,
-                               box.padding = box.padding)
+                               box.padding = box.padding, hjust = hjust)
     idx <- which(boxes$keep)
 
     ## Keep the drawn boxes observable and consistent with the boxes used by
@@ -529,11 +586,21 @@ repel_image_data <- function(data, panel_params, coord, by = "width", asp = 1,
         return(data)
     }
 
-    moved <- repel_boxes(x = data$x[idx], y = data$y[idx],
+    ## Solve on the centres `imageGrob()` will draw (`x + shift`), not on the
+    ## anchors: for hjust != 0.5 the anchor sits half a width away from the
+    ## drawn box, so centring the repulsion boxes on the anchor separates
+    ## images that still overlap (or needlessly pushes apart ones that do
+    ## not). The shift depends on the row's drawn width, and the boxes may
+    ## have moved since `image_repel_boxes()` computed it -- but `shift` is
+    ## only a function of the width, which the solver does not change, so it
+    ## stays valid for the whole solve.
+    shift <- boxes$shift[idx]
+    moved <- repel_boxes(x = data$x[idx] + shift, y = data$y[idx],
                          width = boxes$width[idx], height = boxes$height[idx],
                          max.iter = max.iter, force = force,
                          direction = direction)
-    data$x[idx] <- moved$x
+    ## write back the anchor: subtract the same shift imageGrob will add
+    data$x[idx] <- moved$x - shift
     data$y[idx] <- moved$y
     data
 }
