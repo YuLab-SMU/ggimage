@@ -5,8 +5,9 @@
 ##' @param image image file, or a magick image object
 ##' @param pixel the pixel of `image` to anchor, given as `c(col, row)` counted
 ##' from the top-left corner of the image, i.e. `col` pixels from the left and
-##' `row` pixels from the top. If `NULL` (the default) the image is stretched to
-##' fill the plot panel and the remaining parameters are ignored.
+##' `row` pixels from the top. The centre of that pixel is placed on the data
+##' point `(x, y)`. If `NULL` (the default) the image is stretched to fill the
+##' plot panel and the remaining parameters are ignored.
 ##' @param x x coordinate of the data point that `pixel` is anchored to. Only
 ##' used when `pixel` is given.
 ##' @param y y coordinate of the data point that `pixel` is anchored to. Only
@@ -14,7 +15,10 @@
 ##' @param scale number of data units per image pixel. Required when `pixel` is
 ##' given; it controls the size of the image in data coordinates. To make the
 ##' image `w` data units wide, use `scale = w / image_info(image)$width`.
-##' @return ggplot
+##' @return An object that `+` adds to a plot as a background layer. The
+##' background never takes part in the scale ranges: with `pixel = NULL` it
+##' covers the panel whatever the data, and with `pixel` given the axes can be
+##' discrete as well as continuous.
 ##' @export
 ##' @author Guangchuang Yu
 ##' @examples
@@ -31,7 +35,8 @@
 ##' p + geom_bgimage(img) + geom_point()
 ##'
 ##' ## with `pixel`, the image is placed in data coordinates instead: the
-##' ## bottom-left pixel is anchored to the origin, and `scale` sets the size
+##' ## centre of the bottom-left pixel is anchored to the origin, and `scale`
+##' ## sets the size
 ##' info <- magick::image_info(magick::image_read(img))
 ##' p + geom_bgimage(img, pixel = c(1, info$height), x = 0, y = 0,
 ##'                  scale = 4 / info$width) + geom_point()
@@ -45,14 +50,10 @@ geom_bgimage <- function(image, pixel = NULL, x = 0, y = 0, scale = NULL) {
 ##' @export
 ggplot_add.bgimage <- function(object, plot, object_name, ...) {
     background_layer <- if (is.null(object$pixel)) {
-        x <- y <- NULL
-        geom_image(
-            data = data.frame(x = 0.5, y = 0.5),
-            mapping = ggplot2::aes(x = x, y = y),
-            inherit.aes = FALSE,
-            image = object$image,
-            size = Inf
-        )
+        ## `-Inf`/`Inf` cover the panel without carrying an x or y value, so
+        ## the background neither trains a scale nor fails on a discrete axis.
+        ggplot2::annotation_raster(bgimage_raster(object$image),
+                                   -Inf, Inf, -Inf, Inf)
     } else {
         bgimage_anchor_layer(object$image, object$pixel, object$x, object$y,
                              object$scale)
@@ -61,13 +62,22 @@ ggplot_add.bgimage <- function(object, plot, object_name, ...) {
     return(plot)
 }
 
-## Place `image` in data coordinates so that its `pixel` lands on `(x, y)`.
+## A path is read here rather than by `annotation_raster()`, which only takes a
+## raster object; vector files get the same density as `geom_image()`.
+bgimage_raster <- function(image) {
+    if (is.character(image)) {
+        image <- .read_image_file(image)
+    }
+    image
+}
+
+## Place `image` in data coordinates so that the centre of its `pixel` lands on
+## `(x, y)`.
 ##
 ## A pixel is a cell, not a grid line: pixel column `ax` covers the interval
-## [ax - 1, ax] on the raster grid, so its centre sits (ax - 0.5) from the left
-## edge of the image (and likewise for rows, counted from the top).  That is
-## where the `+ 0.5` below comes from -- using `ax` instead would place the
-## anchor half a pixel off.
+## [ax - 1, ax] measured from the left edge of the image, so its centre sits
+## (ax - 0.5) pixels from that edge, and rows are counted the same way from the
+## top.  Anything else shifts the image by a whole pixel.
 bgimage_anchor_layer <- function(image, pixel, x, y, scale) {
     if (!is.numeric(pixel) || length(pixel) != 2 || anyNA(pixel)) {
         stop("`pixel` should be a numeric vector of length 2, ",
@@ -77,10 +87,8 @@ bgimage_anchor_layer <- function(image, pixel, x, y, scale) {
         stop("`scale` (data units per image pixel) should be a single positive number")
     }
 
-    if (is.character(image)) {
-        image <- image_read(image)
-    }
-    info <- image_info(image)
+    image <- bgimage_raster(image)
+    info <- magick::image_info(image)
     W <- info$width[[1]]
     H <- info$height[[1]]
     ax <- pixel[[1]]
@@ -92,9 +100,9 @@ bgimage_anchor_layer <- function(image, pixel, x, y, scale) {
 
     ggplot2::annotation_raster(
         image,
-        xmin = x - (ax + 0.5) * scale,
-        xmax = x + (W - ax - 0.5) * scale,
-        ymin = y - (H - ay - 0.5) * scale,
-        ymax = y + (ay + 0.5) * scale
+        xmin = x - (ax - 0.5) * scale,
+        xmax = x + (W - ax + 0.5) * scale,
+        ymin = y - (H - ay + 0.5) * scale,
+        ymax = y + (ay - 0.5) * scale
     )
 }

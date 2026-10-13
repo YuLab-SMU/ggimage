@@ -108,11 +108,23 @@ assign("sequence", 0L, envir = .url_validation_cache_meta)
     invisible(NULL)
 }
 
+## Sentinel for "this URL could not be checked at all", as distinct from a
+## status code and from a failed request.
+.URL_UNCHECKED <- -1L
+.url_warning_env <- new.env(parent = emptyenv())
+
 .url_request <- function(url, timeout) {
-    ## httr remains a Suggests dependency.  URL validation is therefore
-    ## deliberately optional: callers get FALSE when it is unavailable.
+    ## httr remains a Suggests dependency.  Without it a remote image cannot be
+    ## checked here at all, and calling it broken would drop every image and
+    ## blame the path for it; magick reads the URL itself and reports the real
+    ## reason.
     if (!requireNamespace("httr", quietly = TRUE)) {
-        return(NA_integer_)
+        if (!isTRUE(.url_warning_env$no_httr)) {
+            .url_warning_env$no_httr <- TRUE
+            warning("`httr` is not installed, so remote images are not checked ",
+                    "before they are downloaded", call. = FALSE)
+        }
+        return(.URL_UNCHECKED)
     }
 
     response <- httr::HEAD(url, httr::timeout(timeout))
@@ -157,6 +169,10 @@ url.exists <- function(url,
             error = function(e) NA_integer_
         )
 
+        if (identical(status, .URL_UNCHECKED)) {
+            ## nothing was checked, so nothing was found broken either
+            return(TRUE)
+        }
         if (identical(status, 200L)) {
             if (use_cache) .url_cache_set(as.character(url), policy, now)
             return(TRUE)

@@ -176,3 +176,32 @@ test_that("embedded vector links are extracted without network access", {
         character()
     )
 })
+
+test_that("a local file or an absolute URL is the silhouette itself", {
+    svg <- tempfile(fileext = ".svg")
+    writeLines(c('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">',
+                 '<rect width="10" height="10" fill="#00ff00"/></svg>'), svg)
+    uid <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+
+    ## the paths download_phylopic() returns must be usable without PhyloPic,
+    ## so they may not be looked up as a name or prefixed as a uid
+    expect_identical(
+        ggimage:::phylopic(c(svg, uid, "https://example.org/a.svg")),
+        c(svg,
+          paste0("https://images.phylopic.org/images/", uid, "/vector.svg"),
+          "https://example.org/a.svg")
+    )
+
+    found <- function(x) {
+        out <- if (inherits(x, "rastergrob")) list(x) else list()
+        for (children in list(x$children, x$grobs)) {
+            if (!is.null(children)) {
+                for (child in children) out <- c(out, found(child))
+            }
+        }
+        out
+    }
+    plot <- ggplot2::ggplot(data.frame(x = 1, y = 1), ggplot2::aes(x, y)) +
+        ggimage::geom_phylopic(ggplot2::aes(image = svg), size = 0.4)
+    expect_length(found(ggplot2::ggplotGrob(plot)), 1L)
+})

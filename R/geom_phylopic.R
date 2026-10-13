@@ -158,8 +158,11 @@ phylopic <- function(id) {
     ## GeomImage already treats NA images as zero-width grobs.
     url <- rep(NA_character_, length(id))
     names(url) <- names(id)
+    reference <- .phylopic_is_reference(id)
     valid <- !is.na(id) & nzchar(id)
-    url[valid] <- paste0(basepath, id[valid], "/vector.svg")
+    url[valid & !reference] <- paste0(basepath, id[valid & !reference],
+                                      "/vector.svg")
+    url[reference] <- id[reference]
 
     return(url)
 
@@ -215,6 +218,14 @@ phylopic <- function(id) {
     invisible(NULL)
 }
 
+## A value that already points at an image -- a local file such as the ones
+## download_phylopic() returns, or an absolute URL -- needs no lookup and is
+## drawn as it stands.
+.phylopic_is_reference <- function(x) {
+    !is.na(x) & nzchar(x) & (grepl("^[a-zA-Z][-+.a-zA-Z0-9]*://", x) |
+                             file.exists(x))
+}
+
 .autocomplete_uid <- function(x){
     input_names <- names(x)
     x <- as.character(x)
@@ -226,9 +237,11 @@ phylopic <- function(id) {
 
     key <- .phylopic_lookup_key(x)
     missing <- is.na(x) | !nzchar(trimws(x))
+    reference <- .phylopic_is_reference(x)
+    result[reference] <- x[reference]
     uuid <- vapply(seq_along(x), function(index) {
         i <- x[[index]]
-        if (missing[[index]]) {
+        if (missing[[index]] || reference[[index]]) {
             FALSE
         } else {
             x1 <- strsplit(i, split = '-', fixed = TRUE)[[1]]
@@ -238,7 +251,7 @@ phylopic <- function(id) {
     }, logical(1))
     result[uuid] <- x[uuid]
 
-    lookup <- which(!missing & !uuid)
+    lookup <- which(!missing & !uuid & !reference)
     if (length(lookup) == 0L) {
         return(result)
     }

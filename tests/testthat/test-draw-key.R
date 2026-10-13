@@ -172,3 +172,79 @@ test_that("geom_image draws legend keys of mapped colour", {
     expect_equal(cols[, order(cols[1, ]), drop = FALSE],
                  cbind(rgba("blue"), rgba("red")))
 })
+
+
+test_that("an image in the key data is drawn instead of the bundled logo", {
+    red <- tempfile(fileext = ".png")
+    blue <- tempfile(fileext = ".png")
+    magick::image_write(magick::image_blank(6, 6, color = "red"), red)
+    magick::image_write(magick::image_blank(6, 6, color = "blue"), blue)
+    withr::local_options(ggimage.keytype = "image")
+
+    data <- keydata(colour = NA_character_, alpha = 1)
+    data$image <- red
+    key <- draw_key_image(data, list(), 20)
+    expect_equal(as.character(key$children[[1]]$raster[1, 1]), "#ff0000ff")
+
+    ## one image per group, also when the images are objects rather than paths
+    two <- draw_key_image(
+        data.frame(colour = c(NA_character_, NA_character_), alpha = c(1, 1),
+                   size = 0.05,
+                   image = I(list(magick::image_blank(6, 6, color = "red"),
+                                  magick::image_blank(6, 6, color = "blue"))),
+                   stringsAsFactors = FALSE),
+        list(), 20
+    )
+    expect_equal(as.character(two$children[[1]]$raster[1, 1]), "#ff0000ff")
+    expect_equal(as.character(two$children[[2]]$raster[1, 1]), "#0000ffff")
+})
+
+test_that("a key image that cannot be read costs its own key only", {
+    missing_file <- file.path(tempdir(), "ggimage-no-such-key-file.png")
+    two <- data.frame(colour = c(NA_character_, NA_character_), alpha = c(1, 1),
+                      size = 0.05, stringsAsFactors = FALSE)
+    two$image <- c(missing_file, system.file("extdata/Rlogo.png", package = "ggimage"))
+    withr::local_options(ggimage.keytype = "image")
+
+    expect_warning(key <- draw_key_image(two, list(), 20), "unable to open image")
+    expect_length(key$children, 2L)
+    expect_true(inherits(key$children[[1]], "zeroGrob"))
+    expect_true(inherits(key$children[[2]], "rastergrob"))
+})
+
+test_that("the legend shows one image per key when the keys carry images", {
+    red <- tempfile(fileext = ".png")
+    blue <- tempfile(fileext = ".png")
+    magick::image_write(magick::image_blank(6, 6, color = "red"), red)
+    magick::image_write(magick::image_blank(6, 6, color = "blue"), blue)
+
+    d <- data.frame(x = 1:4, y = 1:4, g = c("a", "a", "b", "b"),
+                    stringsAsFactors = FALSE)
+    plot <- ggplot2::ggplot(d, ggplot2::aes(x, y, colour = g)) +
+        ggimage::geom_image(image = red, size = 0.08) +
+        ggplot2::guides(colour = ggplot2::guide_legend(
+            override.aes = list(image = c(red, blue))
+        )) +
+        ggplot2::theme_void()
+
+    withr::local_options(ggimage.keytype = "image")
+    keys <- find_grobs(ggplot2::ggplotGrob(plot), "rastergrob")
+    dims <- vapply(keys, function(grob) nrow(grob$raster), integer(1))
+    ## the keys show the images handed to the guide; only the bundled logo,
+    ## which the layer does not use here, would be taller than these 6x6 files
+    expect_false(any(dims > 6L))
+    expect_gte(sum(dims == 6L), 3L)
+})
+
+test_that("the image key applies the layer's image_fun", {
+    white <- magick::image_blank(6, 6, color = "white")
+    tint_red <- function(x) magick::image_colorize(x, 100, "red")
+
+    data <- keydata(image = I(list(white)), colour = NA_character_, alpha = NA_real_)
+    withr::local_options(ggimage.keytype = "image")
+    plain <- draw_key_image(data, list(), 20)$children[[1]]
+    tinted <- draw_key_image(data, list(image_fun = tint_red), 20)$children[[1]]
+
+    expect_equal(as.character(plain$raster[1, 1]), "#ffffffff")
+    expect_equal(as.character(tinted$raster[1, 1]), "#ff0000ff")
+})

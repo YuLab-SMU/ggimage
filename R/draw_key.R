@@ -9,6 +9,12 @@
 ##' key was implemented). An unsupported value falls back to `"point"` with a
 ##' warning.
 ##'
+##' The `"image"` key shows the image carried by the key data, which is the
+##' layer's `image` argument or the images a guide is given with `override.aes`;
+##' ggplot2 has no scale with which to look a per-row `image` up, so a layer that
+##' maps `image` to a column puts the same image in every key. Without any image
+##' to show, the key falls back to the logo bundled with the package.
+##'
 ##' Image layers have no default colour, so `colour` can be missing (i.e. `NULL`)
 ##' or `NA` in `data`, for instance when only `alpha` is mapped. Such keys fall
 ##' back to `"black"`, so that `alpha` stays visible in the legend.
@@ -75,6 +81,23 @@ get_key_image <- function() {
     get("image", envir = cache, inherits = FALSE)
 }
 
+## One key per group, so a legend can tell categories apart by their pictures.
+## Layers that map no image, and keys requested by hand without one, keep the
+## bundled logo.
+key_images <- function(data, n) {
+    values <- data$image
+    if (is.null(values) || length(values) == 0L) {
+        return(rep(list(get_key_image()), n))
+    }
+    if (is.list(values)) {
+        return(values[rep(seq_along(values), length.out = n)])
+    }
+    if (is.factor(values)) {
+        values <- as.character(values)
+    }
+    lapply(seq_len(n), function(i) values[[(i - 1L) %% length(values) + 1L]])
+}
+
 ##' @rdname draw_key
 ##' @importFrom grid rectGrob
 ##' @importFrom grid pointsGrob
@@ -99,14 +122,20 @@ draw_key_image <- function(data, params, size) {
     opacity <- key_alpha(data$alpha, n)
 
     if (kt == "image") {
-        img <- get_key_image()
+        img_list <- key_images(data, n)
         ## no colour to colorize with, the image is displayed as is
         colour <- key_colour(data$colour, n, default = NA_character_)
         grobs <- lapply(seq_len(n), function(i) {
-            if (is.na(colour[i])) {
-                key_img <- apply_image_opacity(img, opacity[i])
-            } else {
-                key_img <- color_image(img, colour[i], opacity[i])
+            key_img <- prepare_image(
+                img_list[[i]],
+                colour = colour[i],
+                opacity = opacity[i],
+                angle = 0,
+                image_fun = params$image_fun,
+                use_cache = TRUE
+            )
+            if (is.null(key_img)) {
+                return(zeroGrob())
             }
 
             rasterGrob(

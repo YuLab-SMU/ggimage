@@ -40,8 +40,6 @@ geom_phylopic_interactive <- function(...){
 
 # the internal functions of ggiraph
 
-#' @importFrom purrr detect_index
-#' @importFrom rlang caller_env
 #' @import ggiraph
 layer_interactive <- getFromNamespace("layer_interactive", "ggiraph")
 add_default_interactive_aes <- getFromNamespace("add_default_interactive_aes", "ggiraph")

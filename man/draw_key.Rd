@@ -26,6 +26,12 @@ key was implemented). An unsupported value falls back to \code{"point"} with a
 warning.
 }
 \details{
+The \code{"image"} key shows the image carried by the key data, which is the
+layer's \code{image} argument or the images a guide is given with \code{override.aes};
+ggplot2 has no scale with which to look a per-row \code{image} up, so a layer that
+maps \code{image} to a column puts the same image in every key. Without any image
+to show, the key falls back to the logo bundled with the package.
+
 Image layers have no default colour, so \code{colour} can be missing (i.e. \code{NULL})
 or \code{NA} in \code{data}, for instance when only \code{alpha} is mapped. Such keys fall
 back to \code{"black"}, so that \code{alpha} stays visible in the legend.

@@ -225,3 +225,33 @@ test_that("cache diagnostics reset independently and with clear", {
   expect_equal(as.numeric(unname(ggimage::get_image_cache_stats()$base["hits"])), 0)
   expect_equal(ggimage:::get_image_cache_size(), 0L)
 })
+
+test_that("image objects with different content do not share one cache entry", {
+  ggimage:::clear_image_cache()
+  withr::defer(ggimage:::clear_image_cache())
+
+  ## digest() of a magick object hashes its external pointer, which is the same
+  ## value for every image, so a cache keyed that way hands the first image
+  ## back for every later one of the same size
+  red <- magick::image_blank(4, 4, color = "red")
+  blue <- magick::image_blank(4, 4, color = "blue")
+  expect_false(identical(ggimage:::image_cache_key(red), ggimage:::image_cache_key(blue)))
+
+  args <- function(img) {
+    list(x = 0.5, y = 0.5, size = 0.05, img = img, colour = NULL, opacity = 1,
+         angle = 0, adj = 1, image_fun = NULL, hjust = 0.5, by = "width", asp = 1,
+         use_cache = TRUE, width = NA_real_, height = NA_real_)
+  }
+  first_pixel <- function(grob) as.character(grob$raster[1L, 1L])
+  red_grob <- do.call(ggimage:::imageGrob, args(red))
+  blue_grob <- do.call(ggimage:::imageGrob, args(blue))
+
+  expect_equal(first_pixel(red_grob), "#ff0000ff")
+  expect_equal(first_pixel(blue_grob), "#0000ffff")
+  expect_equal(ggimage:::get_image_cache_size(), 2L)
+
+  ## a repeat of the same object still costs one entry
+  same <- do.call(ggimage:::imageGrob, args(red))
+  expect_equal(ggimage:::get_image_cache_size(), 2L)
+  expect_equal(first_pixel(same), "#ff0000ff")
+})

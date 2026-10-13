@@ -6,9 +6,28 @@
 + `geom_subview()` reads a subview passed as its first argument again, so `geom_subview(legend, x = 10, y = 50)` works as the published examples show; that call used to fail with "x aesthetic mapping should be provided", which never mentioned the subview (#29)
 + rasterise `.eps`, `.ps` and `.pdf` at 300 dpi instead of ImageMagick's 72 dpi default, which is what made an `.eps` look grainy; the extension is matched case-insensitively, and `.pdf` no longer goes through a `pdftools`-backed reader, which failed with "there is no package called 'pdftools'" wherever that optional dependency is not installed (#30)
 + rebuild the vignette as a Quarto document and drop the old `.Rmd`, and document the geoms and helpers it had been missing: `ggbackground()`, `geom_worldcup2018()`, `geom_phylopic()` with `phylopic_uid()` and `download_phylopic()`, the `list.*()` helpers, the interactive geoms, legend keys, `theme_transparent()` and `theme_nothing()`, `image_read2()`, `ggpreview()`, and the image cache; the `geom_icon()` example runs again with the current Ionicons names
-+ document that a `geom_subview()` inset need not be a `ggplot`: anything `ggplotify::as.grob()` converts can be used, so the vignette now draws base graphics, `lattice`, `pheatmap`, `ComplexHeatmap`, `UpSetR` and `patchwork` plots as sub-views
++ document that a `geom_subview()` inset need not be a `ggplot`: anything `ggplotify::as.grob()` converts can be used, so the vignette now draws a base graphics plot, a `ggplot` and a `magick` image as sub-views
 + document the aesthetics supported by `geom_image()` and `geom_image_repel()`, and make the `geom_image_repel()` example actually overlap
 + describe the package more fully in `Title` and `Description`, and take both from `DESCRIPTION` when rendering the README so that the two cannot drift apart
++ `geom_bgimage(pixel = c(col, row))` anchors the centre of that pixel to `(x, y)`. It anchored the bottom-right corner of the pixel, so the image landed one pixel away from the point it was given (2026-10-12, Mon, #25)
++ `geom_bgimage()` places its image as an annotation, so a background no longer contributes an observation to the plot: it cannot widen the axis ranges, and it no longer breaks a plot whose axis is discrete (2026-10-12, Mon, #25)
++ `ggbackground()` takes the row that carries its background from the data the plot already has. The fixed point it used before was an observation of its own, which widened the axis ranges and failed on a discrete axis (2026-10-12, Mon)
++ `geom_image()` draws the rows it can when a row's image is missing, unreadable, or an empty path. Such a row warns and draws nothing where it used to fail the whole plot, and two of them in one panel failed with "subscript out of bounds"
++ `geom_image()` and `geom_subview()` key the image cache on the content of a `magick` object rather than on its memory address, which every object shares: an image of the same size as one already cached was drawn as that cached image
++ the `"image"` legend key shows the image the layer was given, or the images a guide is given with `override.aes`, instead of the package logo in every key
++ `geom_phylopic()` accepts a local file or an absolute URL, which is what `download_phylopic()` returns and what its documentation describes
++ a multi-page `.pdf` is drawn as its first page, where the whole stack of pages used to be handed to the caller
++ `image_read2()` rasterises `.pdf`, `.eps` and `.ps` at 300 dpi like the image geoms do, and the extension of a URL is read after its query string
++ a URL that could not be checked because the optional `httr` is not installed is no longer counted as a missing image. The check is skipped with one warning and magick reads the URL, so it reports the real reason when an image fails
++ `clear_image_cache()` is exported, as its own documentation instructs
++ `stats` is declared in `Imports`
++ the vignette describes `ggbackground()`, `geom_bgimage()`, `ggimage.keytype` and `asp` as they behave
++ the vignette builds without a network connection. `R CMD check` renders it again, and it used to fail wherever the service queries were refused: the examples that ask PhyloPic or GitHub for a name are now shown rather than run
++ `image_read2()` trims the margin of every frame of a multi-page document and returns them all. It used to crop the first page only and to keep every page when that page filled the canvas, so the number of frames depended on the margins
++ `image_read2()` no longer adds its 300 dpi density when an argument was passed to `...` unnamed, which would match the `density` formal of `image_read()` twice
++ the `"image"` legend key runs the layer's `image_fun`, so the key shows what the panel shows
++ `ape`, `ComplexHeatmap`, `ggtree`, `gridGraphics`, `lattice`, `patchwork`, `pheatmap`, `rsvg` and `UpSetR` are gone from `Suggests`. Only the vignette sub-view examples used them, and those now draw with what the package itself imports, leaving `httr`, `quarto` and `testthat` as the only suggested packages
++ `purrr` and `rlang::caller_env` are no longer imported by name: neither was ever called by this package. `purrr` stays in `Imports` because `ggiraph::layer_interactive()`, which the namespace carries, calls `purrr::` itself
 
 ## ggimage 0.3.6
 

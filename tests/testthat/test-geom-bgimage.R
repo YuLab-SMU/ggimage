@@ -15,20 +15,31 @@ bgimage_plot <- function(data) {
         ggimage::geom_bgimage(system.file("extdata/Rlogo.png", package = "ggimage"))
 }
 
-test_that("geom_bgimage uses one isolated row for one-row data", {
-    plot <- bgimage_plot(data.frame(x = 0.5, y = 0.5))
-    background_layer <- plot$layers[[1L]]
+bgimage_ranges <- function(plot) {
+    panel <- ggplot2::ggplot_build(plot)$layout$panel_params[[1L]]
+    list(x = panel$x.range, y = panel$y.range)
+}
 
-    expect_false(background_layer$inherit.aes)
-    expect_equal(nrow(background_layer$data), 1L)
-    expect_length(bgimage_raster_grobs(ggplot2::ggplotGrob(plot)), 1L)
+test_that("geom_bgimage() does not train the panel scales", {
+    data <- data.frame(x = seq(2, 20, by = 2), y = seq_len(10), g = factor(letters[1:10]))
+    img <- system.file("extdata/Rlogo.png", package = "ggimage")
+
+    continuous <- ggplot2::ggplot(data, ggplot2::aes(x, y)) + ggplot2::geom_point()
+    discrete <- ggplot2::ggplot(data, ggplot2::aes(g, y)) + ggplot2::geom_point()
+
+    ## a background must be decoration: it may not contribute a point of its
+    ## own to the scales, because a dummy row also breaks a discrete axis
+    expect_equal(bgimage_ranges(continuous + ggimage::geom_bgimage(img)),
+                 bgimage_ranges(continuous))
+    expect_equal(bgimage_ranges(discrete + ggimage::geom_bgimage(img)),
+                 bgimage_ranges(discrete))
 })
 
-test_that("geom_bgimage renders one raster for multi-row data", {
-    data <- data.frame(x = seq_len(20), y = seq_len(20))
-    plot <- bgimage_plot(data)
-
-    expect_length(bgimage_raster_grobs(ggplot2::ggplotGrob(plot)), 1L)
+test_that("geom_bgimage() renders one raster for any number of rows", {
+    expect_length(bgimage_raster_grobs(ggplot2::ggplotGrob(
+        bgimage_plot(data.frame(x = 0.5, y = 0.5)))), 1L)
+    expect_length(bgimage_raster_grobs(ggplot2::ggplotGrob(
+        bgimage_plot(data.frame(x = seq_len(20), y = seq_len(20))))), 1L)
 })
 
 ## ---- anchored placement ----------------------------------------------------
@@ -50,28 +61,38 @@ bgimage_anchor_box <- function(...) {
     bgimage_anchor_plot(...)$layers[[1L]]$geom_params[c("xmin", "xmax", "ymin", "ymax")]
 }
 
+bgimage_centre <- function(box, pixel, scale) {
+    ## pixel (column, row) is 1-based and rows count downwards from the top
+    unname(c(x = box[["xmin"]] + (pixel[1L] - 0.5) * scale,
+             y = box[["ymax"]] - (pixel[2L] - 0.5) * scale))
+}
+
 test_that("geom_bgimage() anchors a chosen pixel to a chosen data point", {
     img <- bgimage_test_image()
     size <- bgimage_test_size(img)
+    scale <- 0.01
 
-    ## pixel (1, 1) -- the top-left corner -- anchored to the origin
-    box <- bgimage_anchor_box(img, c(1, 1), 0, 0, 0.01)
+    box <- bgimage_anchor_box(img, c(1, 1), 0, 0, scale)
 
-    ## a pixel is a cell, not a grid line: its centre sits half a pixel inside
-    ## the image edge, hence the 1.5 rather than 1 or 0.5
-    expect_equal(box[["xmin"]], -1.5 * 0.01)
-    expect_equal(box[["xmax"]], (size[["width"]] - 1.5) * 0.01)
-    expect_equal(box[["ymin"]], -(size[["height"]] - 1.5) * 0.01)
-    expect_equal(box[["ymax"]], 1.5 * 0.01)
+    ## the anchored pixel keeps half a pixel of image on its far side, so the
+    ## image starts half a pixel before the anchor and ends (width - 0.5) after
+    expect_equal(box[["xmin"]], -0.5 * scale)
+    expect_equal(box[["xmax"]], (size[["width"]] - 0.5) * scale)
+    expect_equal(box[["ymin"]], -(size[["height"]] - 0.5) * scale)
+    expect_equal(box[["ymax"]], 0.5 * scale)
 
     ## the box is in data units, so it must follow the anchor
-    moved <- bgimage_anchor_box(img, c(1, 1), 5, -3, 0.01)
+    moved <- bgimage_anchor_box(img, c(1, 1), 5, -3, scale)
     expect_equal(moved[["xmin"]] - box[["xmin"]], 5)
     expect_equal(moved[["ymax"]] - box[["ymax"]], -3)
 
     ## and scale is data units per pixel
     bigger <- bgimage_anchor_box(img, c(1, 1), 0, 0, 0.02)
     expect_equal(bigger[["xmax"]] - bigger[["xmin"]], 2 * (box[["xmax"]] - box[["xmin"]]))
+
+    ## the image always covers exactly width * height data units
+    expect_equal(box[["xmax"]] - box[["xmin"]], size[["width"]] * scale)
+    expect_equal(box[["ymax"]] - box[["ymin"]], size[["height"]] * scale)
 })
 
 test_that("the anchored pixel round-trips to the requested data point", {
@@ -87,9 +108,7 @@ test_that("the anchored pixel round-trips to the requested data point", {
         box <- bgimage_anchor_box(img, pixel, at[1L], at[2L], scale)
 
         ## the centre of the anchor pixel must be exactly on `at`
-        centre <- c(box[["xmin"]] + (pixel[1L] + 0.5) * scale,
-                    box[["ymax"]] - (pixel[2L] + 0.5) * scale)
-        expect_equal(centre, at, tolerance = 1e-12)
+        expect_equal(bgimage_centre(box, pixel, scale), at, tolerance = 1e-12)
     }
 })
 
@@ -104,10 +123,23 @@ test_that("geom_bgimage() prepends the anchored raster layer", {
 })
 
 test_that("geom_bgimage() still fills the panel when pixel is NULL", {
-    plot <- bgimage_anchor_plot(bgimage_test_image())
+    data <- data.frame(x = seq(2, 20, by = 2), y = seq_len(10))
+    img <- bgimage_test_image()
 
-    expect_identical(class(plot$layers[[1L]]$geom)[1L], "GeomImage")
-    expect_equal(plot$layers[[1L]]$aes_params$size, Inf)
+    plot <- ggplot2::ggplot(data, ggplot2::aes(x, y)) +
+        ggplot2::geom_point() +
+        ggimage::geom_bgimage(img)
+
+    ## behind the data, one raster, and it does not move the axes
+    expect_identical(class(plot$layers[[1L]]$geom)[1L], "GeomRasterAnn")
+    expect_length(bgimage_raster_grobs(ggplot2::ggplotGrob(plot)), 1L)
+    expect_equal(bgimage_ranges(plot),
+                 bgimage_ranges(ggplot2::ggplot(data, ggplot2::aes(x, y)) +
+                                    ggplot2::geom_point()))
+
+    ## the panel corners, which is what npc = c(0, 0) and c(1, 1) mean
+    box <- plot$layers[[1L]]$geom_params[c("xmin", "xmax", "ymin", "ymax")]
+    expect_equal(unname(unlist(box)), c(-Inf, Inf, -Inf, Inf))
 })
 
 test_that("geom_bgimage() validates the anchoring arguments", {
@@ -142,8 +174,9 @@ test_that("geom_bgimage() renders the anchored pixel on the requested data point
     magick::image_write(magick::image_blank(width, height, color = "black"), solid)
 
     ## a large scale, so that the half-pixel convention is far bigger than the
-    ## measurement noise: using `pixel` instead of `pixel + 0.5` would move the
-    ## image by 0.5 * scale = 0.2 data units, i.e. about 10 device pixels
+    ## measurement noise: anchoring on the pixel's corner instead of its centre
+    ## would move the image by 0.5 * scale = 0.2 data units, i.e. about 10
+    ## device pixels
     scale <- 0.4                      # data units per pixel
     at <- c(1, -1)                    # anchor target in data units
     pixel <- c(1, 1)                  # the image's top-left pixel
@@ -194,13 +227,13 @@ test_that("geom_bgimage() renders the anchored pixel on the requested data point
     ## after the last pixel's centre
     top_left <- to_data(c(x = min(black$x), y = min(black$y)))
     expect_equal(unname(top_left),
-                 c(at[1L] - (pixel[1L] + 0.5) * scale,
-                   at[2L] + (pixel[2L] + 0.5) * scale),
+                 c(at[1L] - (pixel[1L] - 0.5) * scale,
+                   at[2L] + (pixel[2L] - 0.5) * scale),
                  tolerance = 0.08)
 
     bottom_right <- to_data(c(x = max(black$x), y = max(black$y)))
     expect_equal(unname(bottom_right),
-                 c(at[1L] + (width - pixel[1L] - 0.5) * scale,
-                   at[2L] - (height - pixel[2L] - 0.5) * scale),
+                 c(at[1L] + (width - pixel[1L] + 0.5) * scale,
+                   at[2L] - (height - pixel[2L] + 0.5) * scale),
                  tolerance = 0.08)
 })

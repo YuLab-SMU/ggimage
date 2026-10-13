@@ -4,6 +4,12 @@
     if (!inherits(subview, c("grob", "ggplot", "magick-image"))) {
         return(NULL)
     }
+    if (inherits(subview, "magick-image")) {
+        ## digest() of an image object hashes its pointer, not its pixels
+        key <- magick_image_key(subview)
+        if (is.null(key)) return(NULL)
+        return(paste0("magick-image|", key))
+    }
     tryCatch(
         paste(class(subview)[[1L]], digest(subview), sep = "|"),
         error = function(e) NULL

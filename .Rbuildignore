@@ -8,8 +8,11 @@
 ^\.vscode$
 ^CRAN-SUBMISSION$
 ^bench$
-\.workbuddy-ai
+^\.workbuddy-ai$
+^\.worktrees$
 ^Rplots\.pdf$
 ^tests/testthat/Rplots\.pdf$
 ^tests/testthat/_problems$
 ^tests/testthat/testthat-problems\.rds$
+^vignettes/.*_files$
+^vignettes/.*\.html$

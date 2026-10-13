@@ -5,6 +5,7 @@ export(GeomInteractiveImage)
 export(as.ggplot)
 export(as.grob)
 export(autocomplete_name)
+export(clear_image_cache)
 export(download_phylopic)
 export(draw_key_image)
 export(geom_bgimage)
@@ -76,14 +77,11 @@ importFrom(magick,
   image_convert,
   image_info,
   image_read,
-  image_read_pdf,
   image_read_svg,
   image_rotate,
   image_transparent
 )
 importFrom(methods,is)
-importFrom(purrr,detect_index)
-importFrom(rlang,caller_env)
 importFrom(scales,alpha)
 importFrom(tibble,
   as_tibble,

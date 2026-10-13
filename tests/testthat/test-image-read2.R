@@ -40,3 +40,40 @@ test_that("image_read2 leaves an image without white margins unchanged", {
     expect_equal(magick::image_info(cropped)$height,
                  magick::image_info(original)$height)
 })
+
+test_that("a multi-frame image keeps every frame, each trimmed by its own margin", {
+    first <- array(as.raw(255L), dim = c(3L, 8L, 8L))
+    first[1L, 3:5, 3:5] <- as.raw(200L)
+    second <- array(as.raw(255L), dim = c(3L, 8L, 8L))
+    second[2L, 4:6, 2:7] <- as.raw(10L)
+
+    two <- c(magick::image_read(first), magick::image_read(second))
+    path <- tempfile(fileext = ".gif")
+    on.exit(unlink(path), add = TRUE)
+    magick::image_write(two, path, format = "gif")
+
+    trimmed <- image_read2(path)
+    expect_length(trimmed, 2L)
+    expect_equal(dim(trimmed[[1L]]), c(3L, 3L, 3L))
+    expect_equal(dim(trimmed[[2L]]), c(3L, 3L, 6L))
+})
+
+test_that("a positional density argument reaches image_read instead of clashing", {
+    path <- tempfile(fileext = ".pdf")
+    on.exit(unlink(path), add = TRUE)
+    grDevices::pdf(path, width = 2, height = 2)
+    graphics::plot.new()
+    graphics::box()
+    grDevices::dev.off()
+
+    reference <- tryCatch(
+        magick::image_read(path, density = 300),
+        error = function(e) NULL
+    )
+    skip_if(is.null(reference), "no PDF rasteriser on this machine")
+
+    ## `300` is unnamed, so it binds to the density formal of image_read(); the
+    ## reader must not add a named density on top of it
+    info <- magick::image_info(image_read2(path, 300, cut_empty_space = FALSE))
+    expect_equal(as.numeric(sub("x.*$", "", info$density)), 300)
+})

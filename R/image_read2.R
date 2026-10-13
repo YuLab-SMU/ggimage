@@ -11,33 +11,55 @@
 ##' @export
 ##' @author Guangchuang Yu
 image_read2 <- function(path, ..., cut_empty_space = TRUE) {
-    img <- image_read(path, ...)
+    dots <- list(...)
+    ## `geom_image()` rasterises vector documents at `.vector_density`; an
+    ## image read by hand used to stay at ImageMagick's 72 dpi default.  An
+    ## unnamed argument may already be the density, and naming it again would
+    ## match the formal twice.
+    if (length(path) == 1L && !"density" %in% names(dots) &&
+        all(nzchar(names(dots))) &&
+        tolower(tools::file_ext(sub("[?#].*$", "", path))) %in% c("pdf", "eps", "ps")) {
+        dots$density <- .vector_density
+    }
+    img <- do.call(image_read, c(list(path), dots))
     if (!cut_empty_space) {
         return(img)
     }
 
-    bitmap <- img[[1]]
-    bitmap_dim <- dim(bitmap)
+    frames <- lapply(seq_along(img), function(i) {
+        .trim_white_margin(img[[i]], img[i])
+    })
+    if (length(frames) == 1L) {
+        return(frames[[1L]])
+    }
+    do.call(c, frames)
+}
+
+## Trim the empty white margin off one frame.  `frame` is the raw bitmap and
+## `image` the magick object it belongs to, which is returned unchanged when
+## there is nothing to trim.
+.trim_white_margin <- function(frame, image) {
+    bitmap_dim <- dim(frame)
     n_channels <- bitmap_dim[[1L]]
 
     ## The first three channels define the white margin.  Build one logical
     ## mask instead of calculating row and column summaries for each channel;
     ## this also avoids copying each cropped channel into a second array.
-    non_white <- bitmap[1L,,] != as.raw(255L)
+    non_white <- frame[1L,,] != as.raw(255L)
     if (n_channels >= 2L) {
-        non_white <- non_white | bitmap[2L,,] != as.raw(255L)
+        non_white <- non_white | frame[2L,,] != as.raw(255L)
     }
     if (n_channels >= 3L) {
-        non_white <- non_white | bitmap[3L,,] != as.raw(255L)
+        non_white <- non_white | frame[3L,,] != as.raw(255L)
     }
 
     row_keep <- rowSums(non_white) > 0L
     col_keep <- colSums(non_white) > 0L
     if (!any(row_keep) || !any(col_keep)) {
-        ## Keep the original image for an all-white input.  Apart from being
-        ## the least surprising result, this avoids invalid range(integer(0))
-        ## bounds and an unnecessary image reconstruction.
-        return(img)
+        ## Keep the frame for an all-white input.  Apart from being the least
+        ## surprising result, this avoids invalid range(integer(0)) bounds and
+        ## an unnecessary image reconstruction.
+        return(image)
     }
 
     row_bounds <- range(which(row_keep))
@@ -46,12 +68,12 @@ image_read2 <- function(path, ..., cut_empty_space = TRUE) {
     ## No margin means no reconstruction (and therefore no pixel conversion).
     if (identical(row_bounds, c(1L, bitmap_dim[[2L]])) &&
         identical(col_bounds, c(1L, bitmap_dim[[3L]]))) {
-        return(img)
+        return(image)
     }
 
     ## Crop all channels in one operation so an input matte/alpha channel is
     ## retained.  `drop = FALSE` keeps the array shape for narrow images.
-    cropped <- bitmap[, row_bounds[[1L]]:row_bounds[[2L]],
-                      col_bounds[[1L]]:col_bounds[[2L]], drop = FALSE]
+    cropped <- frame[, row_bounds[[1L]]:row_bounds[[2L]],
+                     col_bounds[[1L]]:col_bounds[[2L]], drop = FALSE]
     image_read(cropped)
 }

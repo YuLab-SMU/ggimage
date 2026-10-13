@@ -10,3 +10,5 @@ Rplots.pdf
 *.tar.gz
 tests/testthat/_problems/
 tests/testthat/testthat-problems.rds
+vignettes/*_files/
+vignettes/*.html

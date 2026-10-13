@@ -186,10 +186,12 @@ GeomImage <- ggproto("GeomImage", Geom,
                          )
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
+                              ## a list column holds one image object per row
+                              image <- if (is.list(data$image)) data$image[[i]] else data$image[i]
                               imageGrob(x = data$x[i],
                                         y = data$y[i],
                                         size = data$size[i],
-                                        img = data$image[i],
+                                        img = image,
                                         colour = data$colour[i],
                                         opacity = data$alpha[i],
                                         angle = data$angle[i],
@@ -452,15 +454,31 @@ is_invalid <- function(img) {
   is.null(img) || length(img) == 0 || (is.character(img) && (is.na(img) || img == ""))
 }
 
-# generate stable key: path -> standardized character; object -> digest
-#' @importFrom digest digest
+# generate stable key: path -> standardized character; image object -> content
+# fingerprint; other objects -> digest.  digest() of a magick image hashes its
+# external pointer, so every magick object shares one key and the caches would
+# hand the first image to every other row.
 image_cache_key <- function(img) {
   if (is.character(img)) {
     kp <- tryCatch(normalizePath(img, winslash = "/", mustWork = FALSE),
                    error = function(e) img)
     return(kp)
   }
+  if (methods::is(img, "magick-image")) {
+    key <- magick_image_key(img)
+    if (!is.null(key)) return(key)
+  }
   digest(img)
+}
+
+#' @importFrom digest digest
+magick_image_key <- function(img) {
+  info <- tryCatch(magick::image_info(img), error = function(e) NULL)
+  pixels <- tryCatch(magick::image_write(img, format = "png"),
+                     error = function(e) NULL)
+  if (is.null(info) || is.null(pixels)) return(NULL)
+  paste0("magick:", sum(info$width), "x", sum(info$height), "x",
+         nrow(info), ":", digest(pixels, algo = "sha1"))
 }
 
 # generate transform key based on base_key and transform parameters
@@ -673,7 +691,12 @@ cache_set_transformed <- function(tkey, value, use_cache = TRUE) {
   invisible(value)
 }
 
-# clean all image cache (and policy metadata)
+##' Clear the image caches and their diagnostics.
+##'
+##' @inherit get_image_cache_stats title
+##' @return `NULL`, invisibly.
+##' @seealso [get_image_cache_stats()] [reset_image_cache_stats()]
+##' @export
 clear_image_cache <- function() {
   tryCatch(rm_cache_item(.IMAGE_CACHE_ITEM), error = function(e) invisible(NULL))
   tryCatch(rm_cache_item(.IMAGE_TRANSFORM_CACHE_ITEM), error = function(e) invisible(NULL))
@@ -767,14 +790,20 @@ apply_image_opacity <- function(img, opacity) {
 .vector_density <- 300
 
 ## Dispatch on the extension, case-insensitively: `.EPS` from a Windows export
-## used to miss the vector branches and land on the 72 dpi default.
+## used to miss the vector branches and land on the 72 dpi default.  A query
+## string is only removed to find the extension -- it is part of the reference
+## for a signed URL, and part of the name for a local file.
 .read_image_file <- function(img) {
-    switch(tolower(tools::file_ext(img)),
+    ext <- tolower(tools::file_ext(sub("[?#].*$", "", img)))
+    image <- switch(ext,
            "svg" = magick::image_read_svg(img),
            "pdf" = ,
            "eps" = ,
            "ps" = magick::image_read(img, density = .vector_density),
            magick::image_read(img))
+    ## every page of a vector document comes back as its own frame, and a
+    ## raster grob draws one image
+    if (length(image) > 1L) image[1] else image
 }
 
 prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE,
@@ -875,14 +904,24 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
   if (is.null(image_fun_key)) image_fun_key <- image_fun_cache_key(image_fun)
   memo <- new.env(hash = TRUE, parent = emptyenv())
   path_keys <- new.env(hash = TRUE, parent = emptyenv())
+  seen_objects <- list()
   prepared <- vector("list", n)
+
+  ## A list column carries one image object per row; `[i]` would hand
+  ## prepare_image() the one-element list that wraps it rather than the object.
+  image_at <- function(images, i) {
+    if (is.list(images) && !is.data.frame(images)) images[[i]] else images[i]
+  }
 
   image_key <- function(value) {
     ## Character paths are common and can be keyed without digesting every
     ## row. Normalize each distinct path at most once in this panel.
     if (is.character(value) && length(value) == 1L) {
       path <- value[[1L]]
-      path_id <- if (is.na(path)) "<NA>" else path
+      ## `exists("")` is an error, and neither value can name a file
+      if (is.na(path)) return("character:<NA>")
+      if (!nzchar(path)) return("character:<empty>")
+      path_id <- path
       if (exists(path_id, envir = path_keys, inherits = FALSE)) {
         return(get(path_id, envir = path_keys, inherits = FALSE))
       }
@@ -894,28 +933,36 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
       assign(path_id, key, envir = path_keys)
       return(key)
     }
-    tryCatch(
-      paste0("object:", digest(value)),
-      error = function(e) paste0("object-error:", typeof(value), ":", length(value))
-    )
+    ## Image objects are keyed by reference: digest() of one hashes its
+    ## external pointer, which is the same value for every magick image.
+    hit <- which(vapply(seen_objects, function(seen) identical(seen$image, value),
+                        logical(1)))
+    if (length(hit)) return(seen_objects[[hit[[1L]]]]$key)
+    key <- paste0("object:", length(seen_objects) + 1L)
+    seen_objects[[length(seen_objects) + 1L]] <<- list(image = value, key = key)
+    key
   }
 
   for (i in seq_len(n)) {
+    image <- image_at(img, i)
     key <- image_transform_key(
-      image_key(img[i]), angle[i], colour[i], opacity[i],
+      image_key(image), angle[i], colour[i], opacity[i],
       image_fun = image_fun, image_fun_key = image_fun_key
     )
     if (exists(key, envir = memo, inherits = FALSE)) {
-      prepared[[i]] <- get(key, envir = memo, inherits = FALSE)
+      prepared[i] <- list(get(key, envir = memo, inherits = FALSE))
       next
     }
     value <- prepare_image(
-      img = img[i], colour = colour[i], opacity = opacity[i],
+      img = image, colour = colour[i], opacity = opacity[i],
       angle = angle[i], image_fun = image_fun, use_cache = use_cache,
       image_fun_key = if (use_cache) image_fun_key else NULL
     )
+    ## `[[<-` with NULL drops the slot and shortens the list, so a row whose
+    ## image could not be read would shift every later row and finally run
+    ## past the end when the grobs are built.
     assign(key, value, envir = memo)
-    prepared[[i]] <- value
+    prepared[i] <- list(value)
   }
   prepared
 }
@@ -924,7 +971,6 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
 
 ##' @importFrom magick image_read
 ##' @importFrom magick image_read_svg
-##' @importFrom magick image_read_pdf
 ##' @importFrom magick image_transparent
 ##' @importFrom magick image_rotate
 ##' @importFrom grid rasterGrob
@@ -938,7 +984,7 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
                      asp=1, default.units='native', use_cache=TRUE,
                      width = NA_real_, height = NA_real_, image_fun_key = NULL,
                      prepared_image = NULL, prepared = FALSE) {
-  if (is.na(img)) {
+  if (is.character(img) && (length(img) != 1L || is.na(img))) {
     return(zeroGrob())
   }
 

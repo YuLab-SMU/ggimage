@@ -11,8 +11,9 @@ geom_bgimage(image, pixel = NULL, x = 0, y = 0, scale = NULL)
 
 \item{pixel}{the pixel of \code{image} to anchor, given as \code{c(col, row)} counted
 from the top-left corner of the image, i.e. \code{col} pixels from the left and
-\code{row} pixels from the top. If \code{NULL} (the default) the image is stretched to
-fill the plot panel and the remaining parameters are ignored.}
+\code{row} pixels from the top. The centre of that pixel is placed on the data
+point \verb{(x, y)}. If \code{NULL} (the default) the image is stretched to fill the
+plot panel and the remaining parameters are ignored.}
 
 \item{x}{x coordinate of the data point that \code{pixel} is anchored to. Only
 used when \code{pixel} is given.}
@@ -25,7 +26,10 @@ given; it controls the size of the image in data coordinates. To make the
 image \code{w} data units wide, use \code{scale = w / image_info(image)$width}.}
 }
 \value{
-ggplot
+An object that \code{+} adds to a plot as a background layer. The
+background never takes part in the scale ranges: with \code{pixel = NULL} it
+covers the panel whatever the data, and with \code{pixel} given the axes can be
+discrete as well as continuous.
 }
 \description{
 add image as background to plot panel.
@@ -44,7 +48,8 @@ p <- ggplot(d, aes(x, y)) +
 p + geom_bgimage(img) + geom_point()
 
 ## with `pixel`, the image is placed in data coordinates instead: the
-## bottom-left pixel is anchored to the origin, and `scale` sets the size
+## centre of the bottom-left pixel is anchored to the origin, and `scale`
+## sets the size
 info <- magick::image_info(magick::image_read(img))
 p + geom_bgimage(img, pixel = c(1, info$height), x = 0, y = 0,
                  scale = 4 / info$width) + geom_point()

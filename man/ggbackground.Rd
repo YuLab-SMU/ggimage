@@ -14,7 +14,9 @@ ggbackground(gg, background, ...)
 \item{...}{additional parameter to manipulate background image, see also geom_image}
 }
 \value{
-gg object
+gg object, with the background as its first layer. The layer sits on
+one of the observations the plot already has, so it does not widen the axis
+ranges and needs no continuous axis.
 }
 \description{
 set background for ggplot

@@ -91,3 +91,26 @@ test_that("raster images are read unchanged", {
         magick::image_info(magick::image_read(png))$width
     )
 })
+
+test_that("a query-like suffix names the file, it is not the extension", {
+    skip_if_not_installed("magick")
+
+    dir <- tempfile()
+    dir.create(dir)
+    red <- file.path(dir, "red.png")
+    blue <- file.path(dir, "blue.png?token=1")
+    magick::image_write(magick::image_blank(4, 4, color = "red"), red)
+    magick::image_write(magick::image_blank(4, 4, color = "blue"), blue)
+
+    ## dropping the suffix before opening the reference would read red.png here
+    data <- magick::image_data(ggimage:::.read_image_file(blue), channels = "RGB")
+    expect_identical(as.character(data[, 1, 1]), c("00", "00", "ff"))
+
+    ## the suffix is ignored where the format is decided, so the 300 dpi branch
+    ## still applies to a name that carries one
+    eps <- write_vector("eps")
+    query <- file.path(dir, "logo.eps?raw=1")
+    file.copy(eps, query, overwrite = TRUE)
+    info <- magick::image_info(read_or_skip(query))
+    expect_equal(as.numeric(sub("x.*$", "", info$density)), 300)
+})

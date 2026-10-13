@@ -26,14 +26,6 @@ other layer, scale, facet or theme. The geoms in this package differ only in
 #| message: false
 library("ggplot2")
 library("ggimage")
-
-## TRUE only when every named package is installed.  Used to skip the chunks
-## that demonstrate optional graphics systems rather than fail on them.
-has <- function(...) {
-    all(vapply(c(...), requireNamespace, logical(1), quietly = TRUE))
-}
-## Computed here because a chunk option cannot call a function with commas.
-has_systems <- has("lattice", "pheatmap", "ComplexHeatmap", "UpSetR", "patchwork")
 ```
 
 ## Arguments shared by the image layers
@@ -72,8 +64,9 @@ the sections that follow only describe what is specific to each geom.
 - `hjust`. Where the image sits horizontally relative to its `x`. The default,
   `0.5`, centres it; `0` (or `"left"`) puts its left edge on the point and `1`
   (or `"right"`) its right edge.
-- `asp`. The width-to-height ratio used when the image is sized by `size`. The
-  default, `1`, keeps square proportions.
+- `asp`. Divides the width-to-height ratio of an image sized by `size`, so the
+  image is drawn taller by that factor. The default, `1`, keeps the proportions
+  the image has on disk.
 - `use_cache`. Whether to reuse prepared images across draws (the default). See
   [The image cache](#the-image-cache) for how to bound it.
 - `image_fun`. A function applied to the `magick` image before it is drawn, for
@@ -227,21 +220,17 @@ published examples use: `geom_subview(pie, x = 2, y = 2)` draws one inset at
 ## Sub-views from other graphics systems
 
 `geom_subview()` accepts anything that `ggplotify::as.grob()` can turn into a
-grid grob, so an inset does not have to be a `ggplot`. That widens the range of
-plots that can be used as a sub-view: a base graphics plot, a `lattice` panel, a
-heatmap, an UpSet plot, or a composite of several plots.
+grid grob, so an inset does not have to be a `ggplot`. A base graphics plot, a
+recorded plot, a grob, or an image can be placed as a sub-view just as easily,
+and plot objects from other packages work whenever `as.grob()` has a method for
+them.
 
 | sub-view | how to pass it |
 | --- | --- |
 | base graphics | a `function()` that draws it, or a one-sided `formula` such as `~ plot(x, y)` |
 | recorded plot | `function() replayPlot(rec)` |
 | `grid` grob | the grob itself |
-| `ggplot`, `ggtree` | the plot object |
-| `lattice` | the `trellis` object |
-| `pheatmap` | the `pheatmap` object, built with `silent = TRUE` |
-| `ComplexHeatmap` | the `Heatmap` object |
-| `UpSetR` | the `upset` object |
-| `patchwork`, `aplot` | the composite object |
+| `ggplot` | the plot object; subclasses such as `ggtree` objects work the same |
 | `magick` | the image |
 
 A base plot is a side effect on a graphics device rather than an object, so it
@@ -264,44 +253,30 @@ ggplot(svd, aes(x, y)) + geom_point(size = 2) +
     xlim(-1.2, 5.2) + ylim(-1.2, 3.2) + coord_fixed() + theme_bw()
 ```
 
-The same `as.grob()` conversion runs for every row, so one layer can hold plots
-built by different packages. (This chunk is skipped when those packages are not
-installed.)
+The same `as.grob()` conversion runs for every row, so one layer can hold
+sub-views built in different ways.
 
-```{r subview-systems, eval=has_systems}
+```{r subview-systems}
 #| warning: false
-#| message: false
-#| fig-width: 8
-#| fig-height: 6.9
-set.seed(1)
-svmat <- matrix(rnorm(80), 8, 10)
-
-svinsets <- list(
-    "base graphics"  = function() {
-        plot(rnorm(50), type = "l", axes = FALSE, ann = FALSE); box()
-    },
-    "lattice"        = lattice::xyplot(mpg ~ wt, data = mtcars, pch = 19, cex = .5),
-    "pheatmap"       = pheatmap::pheatmap(svmat, silent = TRUE),
-    "ComplexHeatmap" = ComplexHeatmap::Heatmap(svmat, show_column_names = FALSE,
-                                               show_row_names = FALSE),
-    "UpSetR"         = UpSetR::upset(UpSetR::fromList(list(a = 1:5, b = 3:8, c = 5:9)),
-                                     order.by = "freq"),
-    "patchwork"      = patchwork::wrap_plots(ggplot(mtcars, aes(wt, mpg)) + geom_point(),
-                                             ggplot(mtcars, aes(factor(cyl))) + geom_bar())
+#| fig-width: 7
+#| fig-height: 5.6
+svd <- data.frame(x = 1:3, y = 0)
+svd$subview <- list(
+    function() plot(cos(seq(0, 2 * pi, length.out = 50)), type = "l",
+                    axes = FALSE, ann = FALSE),
+    ggplot(mtcars, aes(wt, mpg)) + geom_point(),
+    magick::image_read(system.file("extdata/Rlogo.png", package = "ggimage"))
 )
-
-svx <- rep(1:3, 2)
-svy <- rep(c(1, -.3), each = 3)
-svd <- data.frame(x = svx, y = svy)
-svd$subview <- unname(svinsets)
+labels <- c("base graphics", "ggplot", "magick")
+names(svd$subview) <- labels
 
 ggplot(svd, aes(x, y)) + geom_blank() +
     geom_subview(aes(x = x, y = y, subview = subview), data = svd,
                  width = .8, height = .8) +
     geom_text(aes(x, y, label = label),
-              data = data.frame(x = svx, y = svy - .55, label = names(svinsets)),
+              data = data.frame(x = 1:3, y = -.7, label = labels),
               vjust = 1, size = 3.2) +
-    xlim(.5, 3.5) + ylim(-1.15, 1.45) + coord_fixed() + theme_void()
+    xlim(.5, 3.5) + ylim(-1.2, 1.2) + coord_fixed() + theme_void()
 ```
 
 Two things are worth knowing before relying on this.
@@ -374,9 +349,10 @@ from being stretched by unequal axes.
 
 ### ggbackground
 
-`geom_bgimage()` covers the panel; `ggbackground()` covers the whole plot, axes
-and margins included. It is a function that takes a plot, not a layer, so it is
-called as `ggbackground(p, image)` rather than added with `+`.
+`ggbackground()` and `geom_bgimage()` both fill the panel and stretch the image
+to it. The difference is how they are applied: `ggbackground(p, img)` takes a
+plot and returns one, so it can be used on a plot that is already built, whereas
+`geom_bgimage()` is a layer and sits behind whatever is added after it.
 
 ```{r ggbackground}
 #| warning: false
@@ -479,8 +455,9 @@ ggplot(wc, aes(x, y)) +
     coord_fixed() + theme_void()
 ```
 
-`list.worldcup2018()` returns the country codes the geom accepts, in the same
-order as the groups of the 2018 tournament.
+`list.worldcup2018()` returns the 32 codes the geom accepts. It is a fixed
+vector, so unlike the other `list.*()` helpers it does not need a network
+connection.
 
 ### geom_phylopic
 
@@ -512,6 +489,7 @@ run. A name that resolves to nothing comes back as `NA`, and the layer draws
 nothing for that row.
 
 ```{r phylopic-uid}
+#| eval: false
 phylopic_uid(c("Canis lupus", "Homo sapiens"))
 ```
 
@@ -520,7 +498,7 @@ when you want a specific drawing.
 
 ```{r geom-phylopic-uid}
 #| warning: false
-uid <- phylopic_uid("Canis lupus")$uid
+uid <- "5036f260-5a0d-42c5-a0bd-9eb0729e54e0" # Canis lupus
 ggplot(data.frame(x = 1, y = 1), aes(x, y)) +
     geom_phylopic(aes(image = uid), size = .5) +
     xlim(.5, 1.5) + ylim(.5, 1.5) + theme_void()
@@ -530,6 +508,7 @@ ggplot(data.frame(x = 1, y = 1), aes(x, y)) +
 quickest way to find a name that will resolve.
 
 ```{r autocomplete-name}
+#| eval: false
 head(autocomplete_name("Canis"), 4)
 ```
 
@@ -539,6 +518,7 @@ then be passed to `geom_phylopic()` just like a uid, and because they are local
 files the plot no longer depends on PhyloPic being reachable.
 
 ```{r download-phylopic}
+#| eval: false
 dir <- tempfile()
 dir.create(dir)
 files <- download_phylopic(c("Canis lupus", "Gallus gallus"), destdir = dir)
@@ -548,14 +528,16 @@ basename(files)
 ### Listing the images that are available
 
 Each service has a `list.*()` function that returns the names it accepts, which
-is easier than guessing. They query the service, so they need a network
-connection; the geoms themselves do not need one once the images are cached.
+is easier than guessing. `list.pokemon()`, `list.icon()` and `list.flag()` ask
+the service for its current files, so the three calls below are shown but not
+run; `list.worldcup2018()` is the exception, being a fixed vector. The geoms
+themselves need no connection once the images are cached.
 
 ```{r list-images}
+#| eval: false
 head(list.pokemon(), 3)
 head(list.icon(), 3)
 head(list.flag(), 3)
-list.worldcup2018()[1:4]
 ```
 
 ## Interactive images
@@ -602,7 +584,8 @@ accepts four values:
 
 - `"point"` (the default when the option is unset) draws a filled point.
 - `"rect"` draws a filled rectangle.
-- `"image"` draws the image itself.
+- `"image"` draws an image instead of a shape, tinted by `colour` and faded by
+  `alpha` like the images in the panel.
 - `"blank"` draws no key at all, which is the behaviour of image layers before
   the key was implemented.
 
@@ -616,17 +599,21 @@ options(ggimage.keytype = "rect")
 key_plot
 
 options(ggimage.keytype = "image")
-key_plot
+key_plot + guides(colour = guide_legend(override.aes = list(image = img)))
 
 options(ggimage.keytype = NULL)
 ```
 
 With `"point"` and `"rect"` the key follows `colour` and `alpha`, so a colour
-legend still reads as a colour legend. With `"image"` the key shows the image
-itself, which is the most readable choice when the images *are* the categories
+legend still reads as a colour legend. With `"image"` the key is one of the
+pictures, which is the most readable choice when the images *are* the categories
 -- here the two groups are told apart by their pictures rather than by a colour
-swatch. The option is global, so set it once for the session, or restore the
-previous value with `options(old)` when you only want it for one plot.
+swatch. Which picture comes from the layer's `image` argument: ggplot2 has no
+scale to look a per-row `image` up in, so a layer that maps `image` to a column
+can only put the same image in every key, and the chunk above hands one image per
+group to the guide with `override.aes`. The option is global, so set it once for
+the session, or restore the previous value with `options(old)` when you only want
+it for one plot.
 
 ## Themes
 
