@@ -50,6 +50,10 @@
 ##' `aes(alpha = ...)` work. `alpha` is an ordinary ggplot2 aesthetic, so its
 ##' default continuous scale maps the data range onto `[0.1, 1]`; add
 ##' `scale_alpha_identity()` to pass the values through unchanged.
+##'
+##' `image` may also be given as a list-column of `magick` images, one image per
+##' row, in addition to a path or a URL per row. Such images are cached by their
+##' content rather than by object identity.
 ##' @return geom layer
 ##' @importFrom ggplot2 layer
 ##' @export
@@ -187,7 +191,7 @@ GeomImage <- ggproto("GeomImage", Geom,
 
                          grobs <- lapply(seq_len(nrow(data)), function(i){
                               ## a list column holds one image object per row
-                              image <- if (is.list(data$image)) data$image[[i]] else data$image[i]
+                              image <- image_at(data$image, i)
                               imageGrob(x = data$x[i],
                                         y = data$y[i],
                                         size = data$size[i],
@@ -880,6 +884,15 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
   })
 }
 
+## Extract row `i` from an image column.  A list-column carries one image
+## object per row and needs `[[`; an atomic vector of paths or URLs needs `[`.
+## The choice is made from the container, not the element: `[` on a
+## list-column hands back the one-element wrapper rather than the object,
+## which prepare_image() would reject as an unexpected type.
+image_at <- function(images, i) {
+  if (is.list(images) && !is.data.frame(images)) images[[i]] else images[i]
+}
+
 # Prepare each distinct image transform once within one panel draw.  This memo
 # is intentionally local to the call: it supplements, but does not alter, the
 # process-global image caches or their use_cache semantics.
@@ -906,12 +919,6 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
   path_keys <- new.env(hash = TRUE, parent = emptyenv())
   seen_objects <- list()
   prepared <- vector("list", n)
-
-  ## A list column carries one image object per row; `[i]` would hand
-  ## prepare_image() the one-element list that wraps it rather than the object.
-  image_at <- function(images, i) {
-    if (is.list(images) && !is.data.frame(images)) images[[i]] else images[i]
-  }
 
   image_key <- function(value) {
     ## Character paths are common and can be keyed without digesting every

@@ -106,7 +106,7 @@ GeomInteractiveImage <- ggproto(
          gb <- imageGrob(x = data$x[i],
                    y = data$y[i],
                    size = data$size[i],
-                   img = data$image[i],
+                   img = image_at(data$image, i),
                    colour = data$colour[i],
                    opacity = data$alpha[i],
                    angle = data$angle[i],

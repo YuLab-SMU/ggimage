@@ -493,3 +493,37 @@ test_that("large dense layouts stay finite and deterministic", {
     expect_equal(y_only$x, rep(0.5, 50L))
     expect_true(all(is.finite(x_only$x)) && all(is.finite(y_only$y)))
 })
+
+test_that("a list-column of images repels like a character column does", {
+    skip_without_repel_api()
+
+    red <- magick::image_blank(8L, 4L, color = "red")
+    blue <- magick::image_blank(8L, 4L, color = "blue")
+    d <- data.frame(x = c(0.5, 0.5), y = c(0.5, 0.5))
+    d$image <- list(red, blue)
+
+    ## size-based boxes go through prepare_image(), which is where the
+    ## one-element wrapper around a list-column row used to be rejected with
+    ## "Unexpected img type: list"; every box then came back keep = FALSE and
+    ## the layer silently drew the two images still stacked
+    p <- repel_plot(d, repel_geom_fun()(size = 0.2, use_cache = FALSE))
+
+    warnings <- character()
+    layout <- withCallingHandlers(
+        repel_layout_of(p),
+        warning = function(w) {
+            warnings <<- c(warnings, conditionMessage(w))
+            invokeRestart("muffleWarning")
+        }
+    )
+
+    expect_false(any(grepl("Unexpected img type", warnings, fixed = TRUE)))
+    expect_equal(nrow(layout), 2L)
+    ## both rows take part in the repulsion and end up separated
+    expect_equal(repel_overlap_count(layout), 0L)
+    expect_false(isTRUE(all.equal(layout$x, d$x)) &&
+                 isTRUE(all.equal(layout$y, d$y)))
+    ## a symmetric conflict resolves around the shared centre
+    expect_equal(mean(layout$x), 0.5, tolerance = 1e-6)
+    expect_equal(mean(layout$y), 0.5, tolerance = 1e-6)
+})

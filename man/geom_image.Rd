@@ -86,6 +86,10 @@ are in bold):
 \code{aes(alpha = ...)} work. \code{alpha} is an ordinary ggplot2 aesthetic, so its
 default continuous scale maps the data range onto \verb{[0.1, 1]}; add
 \code{scale_alpha_identity()} to pass the values through unchanged.
+
+\code{image} may also be given as a list-column of \code{magick} images, one image per
+row, in addition to a path or a URL per row. Such images are cached by their
+content rather than by object identity.
 }
 
 \examples{

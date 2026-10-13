@@ -38,8 +38,11 @@ the sections that follow only describe what is specific to each geom.
 
 - `image` (or the `image` argument for a single image). The value may be a file
   path, a URL, or a `magick` image, and it may be mapped per row, so different
-  points can use different images. A row whose `image` is `NA` is drawn as
-  nothing rather than as an error.
+  points can use different images. A character column holds one path or URL per
+  row; a list-column holds one `magick` image per row, as in
+  `df$image <- list(img1, img2)`, and mapping it with `aes(image = image)` draws
+  each row's own image. A row whose `image` is `NA` is drawn as nothing rather
+  than as an error.
 - `size`. How large the image is, as a **fraction of the panel** -- `size = .05`
   is five percent of the width of the panel by default. Because it is relative
   to the panel, the same code gives the same visual result whatever the data
@@ -574,6 +577,119 @@ girafe(ggobj = ggplot(d, aes(x, y)) +
                            size = .08) +
     theme_void())
 ```
+
+## Animating frames with gganimate
+
+`geom_image()` draws one still image per row of its data, and it knows nothing
+about time: a raster grob is drawn when the plot is drawn, and no layer of this
+package asks for a second one. Animation therefore comes from
+[gganimate](https://gganimate.com/), which owns the states of a plot, the frame
+rate, and the rendering of the result. `ggimage` imports nothing from gganimate;
+the two packages meet only in the data frame you hand to them. The pattern below
+is a *frame-data-driven* one: you decide what the frames are, the data frame
+says which image belongs to which frame, and gganimate walks through them.
+
+The first step happens before any plotting. A source animation -- a GIF, a
+video, a sequence of frames -- is a container of still images, and that
+container has to become files on disk that a row of data can point at.
+
+```{r animate-materialise-frames}
+#| eval: false
+library(magick)
+library(gganimate)
+
+## a small deterministic source animation: four solid-colour frames
+frames <- lapply(c("steelblue", "gold", "firebrick", "seagreen"), function(cl) {
+    image_blank(200, 200, color = cl) |> image_annotate(cl, size = 24)
+})
+gif <- image_join(frames)
+image_write(gif, "source.gif", format = "gif")   # a multi-frame file, not one PNG
+
+## ... and the same thing read back, one frame per file
+src <- image_read("source.gif")
+dir.create("frames", showWarnings = FALSE)
+paths <- sprintf("frames/frame%02d.png", seq_along(src))
+for (i in seq_along(src)) {
+    ## magick writes the format of the *object*, not of the file name, so an
+    ## explicit format is what keeps these files PNG rather than GIF bytes
+    image_write(src[i], paths[i], format = "png")
+}
+basename(paths)
+```
+
+The frame files are now ordinary paths, so the rest is a data frame. It has one
+row per (glyph, frame), and a column naming the state -- which frame each row
+belongs to. That column is plain input data. It is not an aesthetic of
+`geom_image()`, and nothing in this package reads it: it is the column
+`transition_manual()` is given.
+
+```{r animate-frame-table}
+#| eval: false
+## one glyph that stays put, one that moves across the frames
+nf <- length(paths)
+d <- data.frame(
+    glyph = rep(c("fixed", "moving"), each = nf),
+    frame = rep(seq_len(nf), times = 2),
+    x = c(rep(1, nf), seq(1, 4, length.out = nf)),
+    y = rep(1, 2 * nf)
+)
+d$image <- rep(paths, times = 2)
+head(d, 3)
+```
+
+The plot is then built from two kinds of layer. A layer whose data has no
+`frame` column cannot depend on the frame at all, so it is drawn in every
+rendered frame -- here a band and some points that give the animation a
+backdrop. The images come from a `geom_image()` layer over the frame table,
+with a local `aes()` so that the `x` and `image` of that table are the ones
+used.
+
+```{r animate-plot}
+#| eval: false
+## no frame column here, so this layer persists across states
+static <- data.frame(x = 1:4, y = 1)
+
+p <- ggplot(d, aes(x, y)) +
+    geom_rect(aes(xmin = 0.5, xmax = 4.5, ymin = 0.6, ymax = 1.4),
+              data = data.frame(x = 1), fill = "grey92", inherit.aes = FALSE) +
+    geom_point(data = static, size = 1.5) +
+    geom_image(aes(image = image), data = d, size = .12) +
+    coord_fixed() +
+    theme_void()
+
+## the states come from the frame column, not from a ggimage aesthetic
+p <- p + transition_manual(frame)
+
+animate(p, nframes = nf, fps = 4, renderer = magick_renderer())
+```
+
+`transition_manual()` takes the column directly; there is no ordering to
+declare, since the values of `frame` are taken as they come. `nframes` and
+`fps` belong to `animate()` rather than to the plot, and they choose the output
+schedule -- how long each state is held, and how many frames the result has.
+`magick_renderer()` writes the frames through magick, so no other software is
+needed to produce the file; gganimate also offers renderers built on external
+tools, which are its business and not this package's.
+
+### What this does not promise
+
+- **You preprocess the frames.** Turning a source animation into still files,
+  and choosing which of them become states, is done by the magick calls above.
+  `ggimage` reads the paths it is given and nothing else; it never opens a GIF
+  as a sequence.
+- **gganimate drives the states and the rendering.** The transitions, the frame
+  rate, the renderer and the output file are all its API. This package supplies
+  the images and no part of the animation.
+- **A static plot still draws one image per row.** `geom_image(image =
+  "sprite.gif")` draws a still image -- magick gives the first frame of the
+  file -- and is not playback. Nothing in a plain `ggplot` advances between
+  frames, because a raster grob has no clock.
+- **The timing of the source is not preserved.** The per-frame delays, the loop
+  count and the disposal method of the original file are not read and not
+  carried over; the schedule you pass to `animate()` is the schedule you get.
+  Frame replacement is discrete, so an image changes from one state to the next
+  with nothing in between -- there is no easing of the images themselves,
+  whereas the position of a glyph follows whichever transition you chose.
 
 ## Legend keys
 

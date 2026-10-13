@@ -261,10 +261,13 @@ image_repel_boxes <- function(data, panel_params, coord, by = "width", asp = 1,
 
     panel_ar <- panel_aspect_ratio(coord, panel_params)
     for (i in seq_len(n)) {
-        img <- data$image[i]
+        img <- image_at(data$image, i)
         size <- data$size[i]
-        ## `imageGrob()` draws no image (or a full panel background) for these
-        if (is.na(img) || length(size) != 1L || is.na(size) ||
+        ## `imageGrob()` draws no image (or a full panel background) for these.
+        ## `is_invalid()` is the class-safe form of the old `is.na(img)`: it
+        ## rejects NA and empty paths and NULL rows, and leaves a magick object
+        ## alone instead of warning on its external pointer.
+        if (is_invalid(img) || length(size) != 1L || is.na(size) ||
             !is.finite(size)) {
             next
         }

@@ -12,3 +12,5 @@ tests/testthat/_problems/
 tests/testthat/testthat-problems.rds
 vignettes/*_files/
 vignettes/*.html
+# local validation harness; deliberately not part of the package or its git history
+bench/gif-animation-smoke.R

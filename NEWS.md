@@ -13,6 +13,8 @@
 + `geom_bgimage()` places its image as an annotation, so a background no longer contributes an observation to the plot: it cannot widen the axis ranges, and it no longer breaks a plot whose axis is discrete (2026-10-12, Mon, #25)
 + `ggbackground()` takes the row that carries its background from the data the plot already has. The fixed point it used before was an observation of its own, which widened the axis ranges and failed on a discrete axis (2026-10-12, Mon)
 + `geom_image()` draws the rows it can when a row's image is missing, unreadable, or an empty path. Such a row warns and draws nothing where it used to fail the whole plot, and two of them in one panel failed with "subscript out of bounds"
++ `geom_image()` draws the rows of an image list-column as row-wise images, and caches such images by content rather than by object identity
++ `geom_image_repel()` measures each repulsion box from that row's own image when the images come from a list-column. It used to receive the one-element list that wraps the object, warned "Unexpected img type: list" for every row, and silently repelled nothing
 + `geom_image()` and `geom_subview()` key the image cache on the content of a `magick` object rather than on its memory address, which every object shares: an image of the same size as one already cached was drawn as that cached image
 + the `"image"` legend key shows the image the layer was given, or the images a guide is given with `override.aes`, instead of the package logo in every key
 + `geom_phylopic()` accepts a local file or an absolute URL, which is what `download_phylopic()` returns and what its documentation describes
@@ -23,6 +25,7 @@
 + `stats` is declared in `Imports`
 + the vignette describes `ggbackground()`, `geom_bgimage()`, `ggimage.keytype` and `asp` as they behave
 + the vignette builds without a network connection. `R CMD check` renders it again, and it used to fail wherever the service queries were refused: the examples that ask PhyloPic or GitHub for a name are now shown rather than run
++ the vignette shows frame-data-driven animation with `gganimate`: preprocess a GIF into still files with `magick`, build one row per (glyph, frame), and draw it with `geom_image()` plus `transition_manual()`, while stating that a static plot still draws one image per row and that the per-frame delays, loop count and disposal of the source file are not preserved
 + `image_read2()` trims the margin of every frame of a multi-page document and returns them all. It used to crop the first page only and to keep every page when that page filled the canvas, so the number of frames depended on the margins
 + `image_read2()` no longer adds its 300 dpi density when an argument was passed to `...` unnamed, which would match the `density` formal of `image_read()` twice
 + the `"image"` legend key runs the layer's `image_fun`, so the key shows what the panel shows
