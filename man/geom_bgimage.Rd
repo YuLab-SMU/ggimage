@@ -23,7 +23,10 @@ used when \code{pixel} is given.}
 
 \item{scale}{number of data units per image pixel. Required when \code{pixel} is
 given; it controls the size of the image in data coordinates. To make the
-image \code{w} data units wide, use \code{scale = w / image_info(image)$width}.}
+image \code{w} data units wide, use \code{scale = w / image_info(image)$width}. The
+extent is given in data units on both axes, so the image keeps its
+proportions only under \code{coord_fixed()}, and is otherwise stretched by the
+panel's physical shape.}
 }
 \value{
 An object that \code{+} adds to a plot as a background layer. The

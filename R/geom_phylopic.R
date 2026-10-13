@@ -152,17 +152,90 @@ download_phylopic <- function(id, destdir = ".", ..., reuse = TRUE,
 }
 
 .phylopic_lock_acquire <- function(lockdir, timeout, poll) {
-    if (dir.create(lockdir, showWarnings = FALSE, recursive = FALSE)) {
+    if (.phylopic_lock_create(lockdir)) {
+        return(TRUE)
+    }
+    ## An abandoned lock -- its owner died, or a leftover from an older build --
+    ## is never going to release itself, so claim it for this process before
+    ## waiting on anyone.
+    if (.phylopic_lock_stale(lockdir) && .phylopic_lock_takeover(lockdir)) {
         return(TRUE)
     }
     started <- as.numeric(Sys.time())
     repeat {
-        if (dir.create(lockdir, showWarnings = FALSE, recursive = FALSE)) {
+        if (.phylopic_lock_create(lockdir)) {
             return(TRUE)
         }
-        if (as.numeric(Sys.time()) - started >= timeout) return(FALSE)
+        if (as.numeric(Sys.time()) - started >= timeout) {
+            ## the owner may have died while this call waited
+            if (.phylopic_lock_stale(lockdir) &&
+                .phylopic_lock_takeover(lockdir)) {
+                return(TRUE)
+            }
+            return(FALSE)
+        }
         Sys.sleep(poll)
     }
+}
+
+## The lock is a directory stamped with its owner's PID.  The stamp is written
+## as the lock is created, so a lock without a usable stamp can only be a
+## leftover of an interrupted process.
+.phylopic_lock_create <- function(lockdir) {
+    if (!dir.create(lockdir, showWarnings = FALSE, recursive = FALSE)) {
+        return(FALSE)
+    }
+    tryCatch(writeLines(as.character(Sys.getpid()), file.path(lockdir, "pid")),
+             error = function(e) NULL)
+    TRUE
+}
+
+## Remove a lock that looks abandoned, then re-create it stamped with this
+## process' PID.  Racing takers resolve by who creates the directory first.
+.phylopic_lock_takeover <- function(lockdir) {
+    unlink(lockdir, recursive = TRUE, force = TRUE)
+    .phylopic_lock_create(lockdir)
+}
+
+## The lock holds its owner's PID.  It is stale when that PID is gone, or the
+## stamp is missing or unreadable -- e.g. a lock left by a build that predates
+## the stamp, or was interrupted before it -- or when the stamp carries this
+## very process' PID, or when the lock is older than a generous ceiling, in
+## case a process with that PID lives on unrelated to this download.  On
+## Windows, where liveness cannot be probed without killing the process, a
+## foreign lock is judged by age alone.
+.phylopic_lock_stale <- function(lockdir, max_age = 3600) {
+    stamp <- tryCatch(readLines(file.path(lockdir, "pid"), warn = FALSE),
+                      error = function(e) NULL, warning = function(w) NULL)
+    if (length(stamp) != 1L) return(TRUE)
+    pid <- suppressWarnings(as.integer(stamp))
+    if (is.na(pid) || pid <= 0L) return(TRUE)
+    if (pid == Sys.getpid()) return(TRUE)
+    if (.Platform$OS.type != "windows" && !.phylopic_pid_alive(pid)) {
+        return(TRUE)
+    }
+    born <- tryCatch(file.info(file.path(lockdir, "pid"))$mtime,
+                     error = function(e) NULL)
+    if (is.null(born) || is.na(born)) return(FALSE)
+    as.numeric(Sys.time()) - as.numeric(born) > max_age
+}
+
+## Is the process running?  `ps` answers by its exit status, and neither form
+## touches the process.  (tools::pskill cannot be used: it is silent about a
+## missing process -- there is nothing to signal -- so it answers "alive" to
+## everything, and on Windows it ignores the signal and kills the process.)
+## Where no safe probe exists, report "alive" and let the age ceiling collect
+## the lock instead.
+.phylopic_pid_alive <- function(pid) {
+    if (.Platform$OS.type == "windows") {
+        return(TRUE)
+    }
+    status <- suppressWarnings(
+        system2("ps", c("-p", pid, "-o", "pid="), stdout = FALSE, stderr = FALSE))
+    if (!is.numeric(status) || length(status) != 1L || is.na(status)) {
+        return(TRUE)
+    }
+    status == 0
 }
 
 .phylopic_download <- function(url, destfile, ...) {
@@ -188,6 +261,12 @@ phylopic <- function(id) {
     basepath <- getOption('phylopic_dir')
     if (is.null(basepath)){
         basepath <- "https://images.phylopic.org/images/"
+    }
+    ## the option names a directory, so it composes with the id the same way no
+    ## matter whether the caller wrote the trailing slash; without it, "dir" and
+    ## an id joined to paste0 produce "dir<id>", which is not a URL anyone serves
+    if (!grepl("/$", basepath)) {
+        basepath <- paste0(basepath, "/")
     }
 
     id <- .autocomplete_uid(x = id)

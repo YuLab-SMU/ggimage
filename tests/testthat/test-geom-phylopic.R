@@ -265,6 +265,68 @@ test_that("a local file or an absolute URL is the silhouette itself", {
     expect_length(found(ggplot2::ggplotGrob(plot)), 1L)
 })
 
+test_that("phylopic_dir composes the uid path with one slash", {
+    ## the option names a directory the uid is joined to; the join must not
+    ## depend on whether the caller typed the trailing slash, and the URL must
+    ## keep the <uid>/vector.svg shape the image host serves
+    uid <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+    withr::local_options(list(phylopic_dir = "https://mirror.example.org/pics"))
+    without_slash <- suppressWarnings(ggimage:::phylopic(uid))
+    withr::local_options(list(phylopic_dir = "https://mirror.example.org/pics/"))
+    with_slash <- suppressWarnings(ggimage:::phylopic(uid))
+
+    expect_identical(without_slash, with_slash)
+    expect_identical(
+        without_slash,
+        paste0("https://mirror.example.org/pics/", uid, "/vector.svg")
+    )
+})
+
+test_that("an abandoned download lock is taken over, not waited out", {
+    ## a process that died holding the lock leaves the directory behind, so a
+    ## lock stamped with a PID that is not running must not wedge the image
+    dir <- tempfile()
+    dir.create(dir)
+    on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+    lock <- file.path(dir, "x.svg.lock")
+
+    dir.create(lock)
+    writeLines("999999", file.path(lock, "pid"))
+    expect_true(ggimage:::.phylopic_lock_acquire(lock, timeout = 2, poll = 0.05))
+    ## the takeover stamps the new owner
+    expect_equal(as.integer(readLines(file.path(lock, "pid"))), Sys.getpid())
+
+    ## a lock with no stamp at all -- one left by an older build, or a process
+    ## killed before it wrote the PID -- is equally abandoned
+    unlink(lock, recursive = TRUE)
+    dir.create(lock)
+    expect_true(ggimage:::.phylopic_lock_stale(lock))
+
+    ## a lock that carries this very process' PID is stale too, never a deadlock
+    unlink(lock, recursive = TRUE)
+    dir.create(lock)
+    writeLines(as.character(Sys.getpid()), file.path(lock, "pid"))
+    expect_true(ggimage:::.phylopic_lock_stale(lock))
+})
+
+test_that("a live foreign lock is respected and waits out its timeout", {
+    ## PID 1 (init/systemd) is always running and never this test's process
+    skip_if(.Platform$OS.type == "windows")
+    skip_if(!ggimage:::.phylopic_pid_alive(1L), "no reliable process probe")
+    dir <- tempfile()
+    dir.create(dir)
+    on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+    lock <- file.path(dir, "x.svg.lock")
+    dir.create(lock)
+    writeLines("1", file.path(lock, "pid"))
+
+    expect_false(ggimage:::.phylopic_lock_stale(lock))
+    expect_false(ggimage:::.phylopic_lock_acquire(lock, timeout = 0.2, poll = 0.05))
+    ## the other owner's lock is left intact
+    expect_true(dir.exists(lock))
+    expect_equal(readLines(file.path(lock, "pid")), "1")
+})
+
 test_that("autocomplete_name() keeps the names that did match", {
     ## one unknown name must not discard the whole batch, and the informative
     ## message stays as a warning, as phylopic_uid() already does

@@ -14,7 +14,10 @@
 ##' used when `pixel` is given.
 ##' @param scale number of data units per image pixel. Required when `pixel` is
 ##' given; it controls the size of the image in data coordinates. To make the
-##' image `w` data units wide, use `scale = w / image_info(image)$width`.
+##' image `w` data units wide, use `scale = w / image_info(image)$width`. The
+##' extent is given in data units on both axes, so the image keeps its
+##' proportions only under `coord_fixed()`, and is otherwise stretched by the
+##' panel's physical shape.
 ##' @return An object that `+` adds to a plot as a background layer. The
 ##' background never takes part in the scale ranges: with `pixel = NULL` it
 ##' covers the panel whatever the data, and with `pixel` given the axes can be
