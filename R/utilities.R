@@ -215,20 +215,19 @@ check_url <- function(url, url_exists = url.exists, ...) {
     url
 }
 
-## The contents API serves at most 1000 entries per directory and reports that
-## silently: no `Link` header, and `?per_page=` does not raise the cap.  A
-## truncated listing is therefore warned about rather than returned as if it
-## were complete.  Paging the API or reading the trees API is left to the
-## maintainer.
-.github_contents_cap <- 1000L
-
+## A directory is listed through the trees API, which serves every entry of one
+## directory in a single response and reports giving up in its `truncated`
+## flag.  The contents API, the obvious choice, caps a directory at 1000
+## entries and returns the truncated listing silently -- `list.icon()` loses
+## 357 of the 1357 icons that way.  A huge directory can still be truncated by
+## the trees API, so that case is warned about rather than returned as if it
+## were complete.
 get_github_files <- function(owner, repo, path, branch = "main",
                              request = jsonlite::fromJSON) {
     url <- paste0(
     "https://api.github.com/repos/",
     owner, "/", repo,
-    "/contents/", path,
-    "?ref=", branch
+    "/git/trees/", branch, ":", path
   )
 
   ## A rate limit, an offline machine or a rename all come back as a parse
@@ -239,13 +238,17 @@ get_github_files <- function(owner, repo, path, branch = "main",
                            conditionMessage(e), call. = FALSE)
                   })
 
-  if (is.data.frame(res) && nrow(res) == .github_contents_cap) {
-      warning("GitHub listing for ", owner, "/", repo, "/", path,
-              " hit the ", .github_contents_cap, "-entry cap; the list is incomplete",
-              call. = FALSE)
+  if (isTRUE(res$truncated)) {
+      warning("GitHub truncated the listing for ", owner, "/", repo, "/", path,
+              "; the list is incomplete", call. = FALSE)
   }
 
-  return(res$name)
+  entries <- res$tree
+  if (is.null(entries)) {
+      character(0)
+  } else {
+      basename(as.data.frame(entries, stringsAsFactors = FALSE)$path)
+  }
 }
 
 zeroGrob <- function() .zeroGrob

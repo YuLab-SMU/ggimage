@@ -20,6 +20,11 @@ theme_transparent <- function(...) {
               colour = NA),
           legend.background = element_rect(
               fill = "transparent",
+              colour = NA),
+          ## facet strips inherit the opaque panel background from the base
+          ## theme, so a facetted plot left one grey band across the top
+          strip.background = element_rect(
+              fill = "transparent",
               colour = NA), ...)
 }
 

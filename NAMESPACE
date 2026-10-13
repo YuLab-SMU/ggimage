@@ -60,10 +60,6 @@ importFrom(ggplotify,
   as.ggplot,
   as.grob
 )
-importFrom(grDevices,
-  col2rgb,
-  rgb
-)
 importFrom(grid,
   gList,
   gTree,
@@ -76,7 +72,6 @@ importFrom(grid,
   viewport
 )
 importFrom(magick,
-  image_convert,
   image_info,
   image_read,
   image_read_svg,

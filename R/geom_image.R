@@ -998,8 +998,6 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
 ##' @importFrom magick image_rotate
 ##' @importFrom grid rasterGrob
 ##' @importFrom grid viewport
-##' @importFrom grDevices rgb
-##' @importFrom grDevices col2rgb
 ##' @importFrom methods is
 ##' @importFrom tools file_ext
 ##' @importFrom yulab.utils get_cache_element update_cache_item rm_cache_item get_cache_item

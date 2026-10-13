@@ -22,7 +22,7 @@ keydata <- function(...) {
 rgba <- function(x) as.integer(grDevices::col2rgb(x, alpha = TRUE))
 
 ## the most frequent colour of a raster grob (the background of the R logo
-## is transparent, the logo itself is flat coloured by `color_image()`)
+## is transparent, the key is flat coloured by the layer's colour)
 dominant_colour <- function(grob) {
     raster <- grob$raster
     names(sort(table(as.vector(raster)), decreasing = TRUE))[1]
