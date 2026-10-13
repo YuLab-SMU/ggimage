@@ -274,10 +274,13 @@ test_that("worldcup2018() flags come from the host flag() uses", {
 })
 
 test_that("worldcup2018() maps unknown and missing codes to NA", {
-    expect_true(is.na(ggimage:::worldcup2018("XX")))
-    expect_true(is.na(ggimage:::worldcup2018(NA_character_)))
+    ## an unknown code is dropped with a warning that names it; a missing (NA)
+    ## code is a legitimate empty row and stays silent
+    expect_warning(expect_true(is.na(ggimage:::worldcup2018("XX"))),
+                   "outside the 32 qualifiers: XX")
+    expect_no_warning(expect_true(is.na(ggimage:::worldcup2018(NA_character_))))
     expect_identical(
-        unname(ggimage:::worldcup2018(c("AR", "XX"))),
+        unname(suppressWarnings(ggimage:::worldcup2018(c("AR", "XX")))),
         c(
             "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/AR.png",
             NA_character_

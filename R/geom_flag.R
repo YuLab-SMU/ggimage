@@ -77,7 +77,16 @@ worldcup2018 <- function(country) {
     ## flag() instead, which is the one geom_flag() already relies on.
     codes <- list.worldcup2018()
     code <- toupper(country)
-    code[!code %in% codes] <- NA_character_
+    ## A dropped code is worth mentioning, but `NA` is not one: a missing row is
+    ## legitimate data here and every other geom treats it as "draw nothing".
+    unknown <- !is.na(code) & !code %in% codes
+    dropped <- if (any(unknown)) unique(code[unknown]) else character()
+    code[unknown] <- NA_character_
+    if (length(dropped)) {
+        warning("geom_worldcup2018() draws nothing for ", length(dropped),
+                " code(s) outside the 32 qualifiers: ",
+                paste(dropped, collapse = ", "), call. = FALSE)
+    }
     ## England has no ISO 3166-1 code of its own.
     code[code %in% "EN"] <- "GB-ENG"
 

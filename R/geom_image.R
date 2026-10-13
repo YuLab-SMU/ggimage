@@ -834,6 +834,16 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
       return(NULL)
     }
 
+    ## `alpha = NA` names no opacity, so the row is drawn as nothing rather
+    ## than silently promoted to fully opaque.  This matches the contract of an
+    ## unreadable image and of `size = NA` (dropped with a warning): the other
+    ## rows keep their own images, and the batch keeps this slot NULL so a
+    ## skipped row cannot shift the rows after it.
+    if (length(opacity) == 1L && is.na(opacity)) {
+      warning("Invalid alpha value provided: NA")
+      return(NULL)
+    }
+
     # Unified generation of base images key
     img_key <- image_cache_key(img)
 
