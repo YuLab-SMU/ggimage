@@ -83,8 +83,19 @@ bgimage_anchor_layer <- function(image, pixel, x, y, scale) {
         stop("`pixel` should be a numeric vector of length 2, ",
              "c(col, row) counted from the top-left corner of the image")
     }
-    if (!is.numeric(scale) || length(scale) != 1 || is.na(scale) || scale <= 0) {
+    ## `Inf` and `NA` both pass a bare `scale <= 0` test and would place an
+    ## infinite or missing extent in the panel, so require a finite value.
+    if (!is.numeric(scale) || length(scale) != 1 || !is.finite(scale) ||
+        scale <= 0) {
         stop("`scale` (data units per image pixel) should be a single positive number")
+    }
+    ## Likewise for the anchor point: an `Inf`/`NA` coordinate would give the
+    ## raster an infinite or missing corner.
+    if (!is.numeric(x) || length(x) != 1 || !is.finite(x)) {
+        stop("`x` should be a single finite number that `pixel` is anchored to")
+    }
+    if (!is.numeric(y) || length(y) != 1 || !is.finite(y)) {
+        stop("`y` should be a single finite number that `pixel` is anchored to")
     }
 
     image <- bgimage_raster(image)

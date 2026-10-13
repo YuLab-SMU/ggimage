@@ -16,15 +16,25 @@ geom_flag <- function(mapping=NULL,
     geom_image(mapping, data, inherit.aes=inherit.aes, na.rm=na.rm, ..., .fun = flag)
 }
 
-## Build the flag URL without validating it.  Kept separate from flag() so that
-## callers which build many URLs at once (worldcup2018()) do not pay for one
-## request per flag.
+## Build the flag URL without validating the host, only the code.  Kept
+## separate from flag() so that callers which build many URLs at once
+## (worldcup2018()) do not pay for one request per flag.
+## An NA or empty code would otherwise be upper-cased into the literal "NA"
+## and resolve to Namibia's flag (the repo really has NA.png), so a missing
+## code yields NA, which the drawing layer skips -- the contract every other
+## image geom follows.  Codes with characters that cannot be a country or
+## subdivision code (spaces, slashes, "..") could never name a file either and
+## are dropped the same way.
 flag_url <- function(flag) {
     ## no long works, see issue #55
     ## this repo now only contains svg files
     # url <- paste0('https://raw.githubusercontent.com/hampusborgos/country-flags/main/png250px/', tolower(flag), ".png")
 
-    sprintf("https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/%s.png", toupper(flag))
+    code <- toupper(flag)
+    valid <- !is.na(code) & grepl("^[A-Z]{2}(-[A-Z0-9]{1,3})?$", code)
+    url <- rep(NA_character_, length(code))
+    url[valid] <- sprintf("https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/%s.png", code[valid])
+    url
 }
 
 flag <- function(flag) {

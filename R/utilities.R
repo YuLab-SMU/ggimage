@@ -215,16 +215,36 @@ check_url <- function(url, url_exists = url.exists, ...) {
     url
 }
 
-get_github_files <- function(owner, repo, path, branch = "main") {
+## The contents API serves at most 1000 entries per directory and reports that
+## silently: no `Link` header, and `?per_page=` does not raise the cap.  A
+## truncated listing is therefore warned about rather than returned as if it
+## were complete.  Paging the API or reading the trees API is left to the
+## maintainer.
+.github_contents_cap <- 1000L
+
+get_github_files <- function(owner, repo, path, branch = "main",
+                             request = jsonlite::fromJSON) {
     url <- paste0(
     "https://api.github.com/repos/",
     owner, "/", repo,
     "/contents/", path,
     "?ref=", branch
   )
-  
-  res <- jsonlite::fromJSON(url)
-  
+
+  ## A rate limit, an offline machine or a rename all come back as a parse
+  ## failure; name the URL so the cause is recognizable.
+  res <- tryCatch(request(url),
+                  error = function(e) {
+                      stop("could not read the GitHub listing at ", url, ": ",
+                           conditionMessage(e), call. = FALSE)
+                  })
+
+  if (is.data.frame(res) && nrow(res) == .github_contents_cap) {
+      warning("GitHub listing for ", owner, "/", repo, "/", path,
+              " hit the ", .github_contents_cap, "-entry cap; the list is incomplete",
+              call. = FALSE)
+  }
+
   return(res$name)
 }
 

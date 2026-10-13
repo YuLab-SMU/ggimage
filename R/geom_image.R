@@ -490,13 +490,29 @@ image_fun_cache_key <- function(image_fun) {
   if (is.null(image_fun)) "" else digest(image_fun)
 }
 
+# One component of a transform key.  `prepare_image()` tints only when `colour`
+# is neither NULL nor NA, so NULL, NA and "" all mean "no tint" and must share
+# one key -- but they may not share it with a real colour.  An empty string is
+# the natural spelling of "absent", so a present value is marked with a "v:"
+# prefix: "" and NA keep the empty component they always had, a named colour
+# gets its own, and no colour can spell itself as the marker of another.
+image_transform_component <- function(value) {
+  if (is.null(value) || length(value) == 0L) return("")
+  value <- as.character(value)
+  if (length(value) != 1L || is.na(value)) return("")
+  if (!nzchar(value)) return("")
+  paste0("v:", value)
+}
+
 image_transform_key <- function(base_key, angle, colour, opacity, image_fun = NULL,
                                 image_fun_key = NULL) {
   if (is.null(image_fun_key)) image_fun_key <- image_fun_cache_key(image_fun)
+  ## `angle` keeps its original spelling: no rotation is written as the bare
+  ## "0", so NA, NULL and 0 still share one key exactly as they did before.
   paste(base_key,
         if (is.null(angle) || is.na(angle)) 0 else angle,
-        if (is.null(colour) || is.na(colour)) "" else as.character(colour),
-        if (is.null(opacity) || is.na(opacity)) "" else as.character(opacity),
+        image_transform_component(colour),
+        image_transform_component(opacity),
         image_fun_key, sep = "|")
 }
 

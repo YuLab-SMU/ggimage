@@ -40,7 +40,13 @@ download_phylopic <- function(id, destdir = ".", ..., reuse = TRUE,
     names(destfile) <- names(url)
 
     valid <- !is.na(url) & nzchar(url)
-    destfile[valid] <- paste0(destdir, '/', id[valid], n[valid])
+    ## Key the destination on the RESOLVED image rather than on the input
+    ## string: a name and its uid then share one file instead of downloading
+    ## the same image twice, and no input can put a separator or a space into
+    ## the file name.  `.phylopic_dest_name()` falls back to a digest of the
+    ## input when the URL does not carry a usable uid.
+    destfile[valid] <- file.path(destdir,
+                                 .phylopic_dest_name(url[valid], id[valid]))
     pending <- which(valid)
     if (!length(pending)) return(invisible(destfile))
 
@@ -111,6 +117,38 @@ download_phylopic <- function(id, destdir = ".", ..., reuse = TRUE,
     info <- file.info(path)
     isTRUE(!is.na(info$size) && info$size > 0 &&
            !is.na(info$isdir) && !info$isdir)
+}
+
+## One file name per distinct downloaded image.  PhyloPic vector URLs look
+## like ".../images/<uid>/vector.svg", so the uid is the parent directory of
+## the file name; the extension of the URL is kept.  Anything that does not
+## yield a usable uid -- a mocked URL, a local file, an unexpected shape --
+## falls back to a digest of the input, which is still stable across calls and
+## still free of separators.
+.phylopic_dest_name <- function(url, input) {
+    url <- as.character(url)
+    input <- as.character(input)
+    ext <- sub("^.*\\.([^./]+)(?:\\?.*)?$", "\\1", basename(url))
+    ## `sub()` returns the input unchanged when it does not match, which would
+    ## silently reuse the whole URL as an extension.
+    no_ext <- !grepl("\\.", basename(url))
+    ext[no_ext] <- "svg"
+    ext[is.na(ext) | !nzchar(ext)] <- "svg"
+
+    uid <- basename(dirname(url))
+    ## A real uid is a UUID; anything else is not the image identity.
+    ok <- !is.na(uid) & grepl("^[A-Za-z0-9_-]+$", uid) &
+        uid != "." & uid != ".." & uid != "/"
+
+    out <- character(length(url))
+    out[ok] <- paste0(uid[ok], ".", ext[ok])
+    if (any(!ok)) {
+        for (i in which(!ok)) {
+            out[[i]] <- paste0("phylopic-", digest::digest(input[[i]]),
+                               ".", ext[[i]])
+        }
+    }
+    out
 }
 
 .phylopic_lock_acquire <- function(lockdir, timeout, poll) {
@@ -287,26 +325,48 @@ phylopic <- function(id) {
 ##' @export
 autocomplete_name <- function(name, ...){
     x <- lapply(name, .autocomplete_name_search)
-    x <- do.call('rbind', x)
+    x <- .autocomplete_name_bind(x)
     return(x)
 }
 
+## A name that matches nothing contributes a zero-row (or all-NA) result rather
+## than aborting the batch, so the names that did match are still returned.
 .autocomplete_name_search <- function(name, ...){
     x <- gsub("[^a-zA-Z]+", "%20", tolower(name))
     url <- paste0('https://api.phylopic.org/autocomplete?query=', x)
     res <- suppressWarnings(tryCatch(jsonlite::fromJSON(url),
                     error = function(e) return(NULL)))
     if (is.null(res) || length(res$matches)==0){
-         stop(paste0("No matching names found for ", name, ". \n",
+         warning(paste0("No matching names found for ", name, ". \n",
                     "Ensure provided name is a valid taxonomic name or ",
                     "try a species/genus resolution name."
-                    )
-         )
+                    ), call. = FALSE)
+         x <- data.frame(name = as.character(name), match_name = NA_character_,
+                         stringsAsFactors = FALSE)
     }else{
         x <- res$matches
+        x <- data.frame(name = name, match_name = x, stringsAsFactors = FALSE)
     }
-    x <- data.frame(name=name, match_name=x)
     return(x)
+}
+
+## `do.call(rbind, x)` refuses frames with different columns, which turned one
+## partial response into a failure of the whole call.  Union the columns and
+## fill the missing ones with NA instead; an empty list yields no rows.
+.autocomplete_name_bind <- function(x) {
+    x <- x[!vapply(x, is.null, logical(1))]
+    if (length(x) == 0L) {
+        return(data.frame(name = character(), match_name = character(),
+                          stringsAsFactors = FALSE))
+    }
+    columns <- unique(unlist(lapply(x, names), use.names = FALSE))
+    rows <- lapply(x, function(frame) {
+        frame <- as.data.frame(frame, stringsAsFactors = FALSE)
+        missing <- setdiff(columns, names(frame))
+        for (column in missing) frame[[column]] <- NA
+        frame[columns]
+    })
+    do.call(rbind, rows)
 }
 
 # phylopic_valid_id <- function(id) {

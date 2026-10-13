@@ -111,3 +111,62 @@ test_that("grid candidate estimates scale with sparse occupancy", {
     ## linear in n rather than approaching the quadratic full-pair count.
     expect_equal(estimates, c(0, 0, 0))
 })
+
+
+test_that("the sweep consults the grid only under broad.phase above the threshold", {
+    ## The grid is a pure optimisation: forcing repel_grid_state() to NULL left
+    ## the suite green, because every existing test compared final layouts.  A
+    ## layout comparison cannot distinguish "grid used" from "grid skipped", so
+    ## this test observes the internal call itself.
+    ##
+    ## repel_boxes_sweep() builds the grid only when
+    ##     isTRUE(broad.phase) && n > 64L && <all finite and non-negative>
+    ## so a 96-point layout is above the threshold and a small one is below it.
+    original <- ggimage:::repel_grid_state
+    sizes <- integer()
+    local_mocked_bindings(
+        repel_grid_state = function(x, y, width, height) {
+            sizes <<- c(sizes, length(x))
+            original(x, y, width, height)
+        },
+        .package = "ggimage"
+    )
+
+    layout <- function(n) {
+        x <- seq(0, by = 2, length.out = n)
+        y <- rep(c(0, 1), length.out = n)
+        x[seq_len(6L)] <- c(0, 0, 0.04, 0.08, 0.12, 0.16)
+        y[seq_len(6L)] <- c(0, 0, 0, 0.04, 0.08, 0.12)
+        list(x = x, y = y, width = rep(0.2, n), height = rep(0.2, n),
+             max.iter = 5L, force = 0.2, direction = "both")
+    }
+
+    ## broad.phase = FALSE must not touch the grid at all.
+    n <- 96L
+    args <- layout(n)
+    reference <- do.call(ggimage:::repel_boxes,
+                         c(args, list(broad.phase = FALSE)))
+    expect_length(sizes, 0L)
+
+    ## broad.phase = TRUE above the threshold must consult it, once per sweep
+    ## iteration, always with the full n.
+    candidate <- do.call(ggimage:::repel_boxes,
+                         c(args, list(broad.phase = TRUE)))
+    expect_gt(length(sizes), 0L)
+    expect_true(all(sizes > 64L))
+    expect_true(all(sizes == n))
+
+    ## and the grid path must not change the answer
+    expect_equal(candidate, reference, tolerance = 1e-12)
+
+    ## A layout at or below the threshold never builds a grid even with the
+    ## broad phase on: the guard is `n > 64L`, not merely `broad.phase`.
+    sizes <- integer()
+    small <- layout(64L)
+    small_reference <- do.call(ggimage:::repel_boxes,
+                               c(small, list(broad.phase = FALSE)))
+    small_candidate <- do.call(ggimage:::repel_boxes,
+                               c(small, list(broad.phase = TRUE)))
+    expect_length(sizes, 0L)
+    expect_equal(small_candidate, small_reference, tolerance = 1e-12)
+})

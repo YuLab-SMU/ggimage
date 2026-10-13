@@ -77,3 +77,98 @@ test_that("a positional density argument reaches image_read instead of clashing"
     info <- magick::image_info(image_read2(path, 300, cut_empty_space = FALSE))
     expect_equal(as.numeric(sub("x.*$", "", info$density)), 300)
 })
+
+## A 1xN or Nx1 image used to abort `rowSums()` with "'x' must be an array of
+## at least two dimensions": slicing one channel out of a bitmap whose width or
+## height is 1 collapses to a plain vector.  The trim mask is now rebuilt with
+## an explicit (row, column) margin, so degenerate shapes survive.
+
+## Write a magick image of the given size to a temp PNG and return the path.
+thin_image_path <- function(width, height, dark = NULL) {
+    bitmap <- array(as.raw(255L), dim = c(3L, width, height))
+    for (cell in dark) {
+        bitmap[, cell[[1L]], cell[[2L]]] <- as.raw(0L)
+    }
+    path <- tempfile(fileext = ".png")
+    magick::image_write(magick::image_read(bitmap), path)
+    path
+}
+
+test_that("image_read2 handles 1x1, 1x20, and 20x1 all-white images", {
+    for (dims in list(c(1L, 1L), c(1L, 20L), c(20L, 1L))) {
+        width <- dims[[1L]]
+        height <- dims[[2L]]
+        path <- thin_image_path(width, height)
+        on.exit(unlink(path), add = TRUE)
+
+        image <- image_read2(path)
+
+        ## An all-white input has no margin to trim, so it is returned
+        ## unchanged: same size, same pixels.
+        info <- magick::image_info(image)
+        expect_equal(info$width, width)
+        expect_equal(info$height, height)
+        ## a greyscale PNG carries one channel; what matters here is that the
+        ## (row, column) margin survives instead of collapsing to a vector
+        expect_equal(dim(image[[1L]])[2:3], c(width, height))
+        expect_true(all(as.integer(image[[1L]]) == 255L))
+    }
+})
+
+test_that("image_read2 trims a 20x1 image whose interior pixel is dark", {
+    ## One dark pixel in the middle of a single-row image: the trim must keep
+    ## that column and drop the white columns on either side, without aborting.
+    path <- thin_image_path(20L, 1L, dark = list(c(7L, 1L)))
+    on.exit(unlink(path), add = TRUE)
+
+    image <- image_read2(path)
+    info <- magick::image_info(image)
+    expect_equal(info$width, 1L)
+    expect_equal(info$height, 1L)
+    ## the surviving pixel is the dark one the trim was meant to keep
+    expect_true(all(as.integer(image[[1L]]) == 0L))
+})
+
+test_that("image_read2 trims a 1x20 image whose interior pixel is dark", {
+    path <- thin_image_path(1L, 20L, dark = list(c(1L, 5L)))
+    on.exit(unlink(path), add = TRUE)
+
+    image <- image_read2(path)
+    info <- magick::image_info(image)
+    expect_equal(info$width, 1L)
+    expect_equal(info$height, 1L)
+    expect_true(all(as.integer(image[[1L]]) == 0L))
+})
+
+test_that("image_read2 leaves a fully dark thin image alone", {
+    ## Every pixel dark means every row and column is kept, so no cropping
+    ## happens and the margin-based shortcut must not misfire.
+    path <- thin_image_path(20L, 1L, dark = lapply(seq_len(20L), function(i) c(i, 1L)))
+    on.exit(unlink(path), add = TRUE)
+
+    image <- image_read2(path)
+    info <- magick::image_info(image)
+    expect_equal(info$width, 20L)
+    expect_equal(info$height, 1L)
+})
+
+test_that("image_read2 trims thin images reproducibly", {
+    ## Re-reading the file must give the same result, and writing the trimmed
+    ## result back out and reading it again must be a no-op (the margin is
+    ## already gone), which also proves the degenerate shape survives a second
+    ## pass through the reader.
+    path <- thin_image_path(1L, 20L, dark = list(c(1L, 8L)))
+    on.exit(unlink(path), add = TRUE)
+
+    once <- image_read2(path)
+    again <- image_read2(path)
+    expect_equal(as.integer(again[[1L]]), as.integer(once[[1L]]))
+
+    settled <- tempfile(fileext = ".png")
+    on.exit(unlink(settled), add = TRUE)
+    magick::image_write(once, settled)
+    twice <- image_read2(settled)
+    expect_equal(magick::image_info(twice)$width, magick::image_info(once)$width)
+    expect_equal(magick::image_info(twice)$height, magick::image_info(once)$height)
+    expect_equal(as.integer(twice[[1L]]), as.integer(once[[1L]]))
+})

@@ -162,6 +162,86 @@ test_that("failed URL validation is not sticky in the cache", {
     expect_identical(calls, 2L)
 })
 
+test_that("a zero ttl disables the URL validation cache entirely", {
+    ## `.url_cache_get()`/`.url_cache_set()` guard on
+    ## `policy$ttl <= 0 || policy$capacity <= 0` and must then never read or
+    ## write an entry.  Deleting that guard would let an entry with a zero
+    ## expiry be written and still be treated as a hit, so every call here has
+    ## to reach the request function.
+    calls <- 0L
+    request <- function(url, timeout, ...) {
+        calls <<- calls + 1L
+        200L
+    }
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 0, capacity = 2,
+                                 clock = function() 100)
+    )
+    local_mocked_bindings(.url_request = request, .package = "ggimage")
+    ggimage:::.url_cache_clear()
+    on.exit(ggimage:::.url_cache_clear(), add = TRUE)
+
+    target <- "https://example.invalid/no-ttl.png"
+    for (i in 1:3) {
+        expect_true(ggimage:::url.exists(target))
+    }
+    expect_identical(calls, 3L)
+    ## Nothing may be left behind for a later call to find.
+    expect_false(exists(target, envir = ggimage:::.url_validation_cache,
+                        inherits = FALSE))
+})
+
+test_that("a zero capacity disables the URL validation cache entirely", {
+    calls <- 0L
+    request <- function(url, timeout, ...) {
+        calls <<- calls + 1L
+        200L
+    }
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 100, capacity = 0,
+                                 clock = function() 100)
+    )
+    local_mocked_bindings(.url_request = request, .package = "ggimage")
+    ggimage:::.url_cache_clear()
+    on.exit(ggimage:::.url_cache_clear(), add = TRUE)
+
+    target <- "https://example.invalid/no-capacity.png"
+    for (i in 1:3) {
+        expect_true(ggimage:::url.exists(target))
+    }
+    expect_identical(calls, 3L)
+    expect_false(exists(target, envir = ggimage:::.url_validation_cache,
+                        inherits = FALSE))
+})
+
+test_that("a zero ttl does not break a positive-capacity cache for other URLs", {
+    ## The guard has to be a real short-circuit rather than a broken policy:
+    ## switching the option back on must restore caching.
+    calls <- 0L
+    request <- function(url, timeout, ...) {
+        calls <<- calls + 1L
+        200L
+    }
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 0, capacity = 2, clock = function() 100)
+    )
+    local_mocked_bindings(.url_request = request, .package = "ggimage")
+    ggimage:::.url_cache_clear()
+    on.exit(ggimage:::.url_cache_clear(), add = TRUE)
+
+    target <- "https://example.invalid/toggled.png"
+    expect_true(ggimage:::url.exists(target))
+    expect_true(ggimage:::url.exists(target))
+    expect_identical(calls, 2L)
+
+    withr::local_options(
+        ggimage.url_cache = list(ttl = 10, capacity = 2, clock = function() 100)
+    )
+    expect_true(ggimage:::url.exists(target))
+    expect_true(ggimage:::url.exists(target))
+    expect_identical(calls, 3L)
+})
+
 test_that("worldcup2018() flags come from the host flag() uses", {
     ## Regression: the 32 World Cup flags used to be hard-coded to
     ## upload.wikimedia.org, which is unreachable from some networks, so
@@ -245,4 +325,58 @@ test_that("remote wrappers share deduplicating URL validation", {
             "https://raw.githubusercontent.com/Templarian/slack-emoji-pokemon/master/emojis/pikachu.png"
         )
     )
+})
+
+test_that("flag_url() returns NA for codes that cannot name a flag file", {
+    ## Regression: an NA or empty code used to be upper-cased into the literal
+    ## "NA", and the region-flags repository really contains NA.png (Namibia),
+    ## so a missing code silently drew the Namibian flag.  Anything that cannot
+    ## be a country or subdivision code must yield NA instead -- which the
+    ## drawing layer skips -- rather than a URL built from garbage.
+    bad <- c(NA_character_, "", " ", "us/ca", "../x")
+    expect_true(all(is.na(ggimage:::flag_url(bad))))
+    expect_length(ggimage:::flag_url(bad), length(bad))
+
+    ## The specific failure mode this guards against: a missing code must not
+    ## resolve to Namibia.
+    expect_false(any(grepl("/NA\\.png$", na.omit(ggimage:::flag_url(bad)))))
+
+    ## Other malformed shapes: over-long codes, digits-only, traversal, spaces,
+    ## punctuation, and multi-slash paths.
+    also_bad <- c("USA", "1", "2A", ".", "..", "us/ca/gb", "u s", "us-",
+                  "US-", "-US", "us.ca", "\u00e9\u00e9", "null")
+    expect_true(all(is.na(ggimage:::flag_url(also_bad))))
+})
+
+test_that("flag_url() still builds real country and subdivision codes", {
+    base <- "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png"
+    expect_identical(ggimage:::flag_url("us"), paste0(base, "/US.png"))
+    expect_identical(ggimage:::flag_url("GB-ENG"), paste0(base, "/GB-ENG.png"))
+    ## case-insensitive, as before the fix
+    expect_identical(ggimage:::flag_url("gb-eng"), paste0(base, "/GB-ENG.png"))
+    ## "NA" is a real ISO code (Namibia) and must keep working
+    expect_identical(ggimage:::flag_url("NA"), paste0(base, "/NA.png"))
+
+    mixed <- ggimage:::flag_url(c("us", NA_character_, "GB-ENG", ""))
+    expect_identical(
+        mixed,
+        c(paste0(base, "/US.png"), NA_character_, paste0(base, "/GB-ENG.png"),
+          NA_character_)
+    )
+})
+
+test_that("flag() drops invalid codes without spending a request on them", {
+    checked <- character()
+    exists <- function(url, ...) {
+        checked <<- c(checked, url)
+        TRUE
+    }
+    local_mocked_bindings(url.exists = exists, .package = "ggimage")
+
+    base <- "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png"
+    result <- ggimage:::flag(c("us", NA_character_, "", "../x"))
+    expect_identical(result, c(paste0(base, "/US.png"), NA_character_,
+                               NA_character_, NA_character_))
+    ## only the one buildable URL reaches validation
+    expect_identical(checked, paste0(base, "/US.png"))
 })

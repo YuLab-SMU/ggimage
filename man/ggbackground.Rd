@@ -16,7 +16,8 @@ ggbackground(gg, background, ...)
 \value{
 gg object, with the background as its first layer. The layer sits on
 one of the observations the plot already has, so it does not widen the axis
-ranges and needs no continuous axis.
+ranges and needs no continuous axis. The observation is taken from the
+plot-level \code{aes()}, or from the first layer that maps \code{x} and \code{y}.
 }
 \description{
 set background for ggplot

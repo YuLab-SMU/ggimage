@@ -19,8 +19,13 @@
 ##' @author Guangchuang Yu
 ggpreview <- function(filename = NULL, plot = last_plot(), 
                     width = NA, height = NA, units = 'in', ...) {
-    if (is.null(filename)) {
+    ## Only the file this call creates itself is removed again; a file the
+    ## caller named is theirs to keep.  Without this the temporary PNG stayed
+    ## in the session temp directory until the session ended.
+    temporary <- is.null(filename)
+    if (temporary) {
         filename <- tempfile(fileext = '.png') 
+        on.exit(unlink(filename, force = TRUE), add = TRUE)
     }
     
     if (!inherits(plot, 'gg')) {

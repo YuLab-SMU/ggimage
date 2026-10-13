@@ -43,14 +43,18 @@ image_read2 <- function(path, ..., cut_empty_space = TRUE) {
     n_channels <- bitmap_dim[[1L]]
 
     ## The first three channels define the white margin.  Build one logical
-    ## mask instead of calculating row and column summaries for each channel;
-    ## this also avoids copying each cropped channel into a second array.
-    non_white <- frame[1L,,] != as.raw(255L)
-    if (n_channels >= 2L) {
-        non_white <- non_white | frame[2L,,] != as.raw(255L)
-    }
-    if (n_channels >= 3L) {
-        non_white <- non_white | frame[3L,,] != as.raw(255L)
+    ## mask instead of calculating row and column summaries for each channel.
+    ## The channel slice is rebuilt as an explicit (second, third) margin: an
+    ## image with width 1 or height 1 would otherwise collapse to a plain
+    ## vector and rowSums() would abort with "'x' must be an array of at least
+    ## two dimensions".
+    mask_rows <- bitmap_dim[[2L]]
+    mask_cols <- bitmap_dim[[3L]]
+    non_white <- matrix(FALSE, nrow = mask_rows, ncol = mask_cols)
+    for (channel in seq_len(min(n_channels, 3L))) {
+        non_white <- non_white |
+            matrix(frame[channel, , ] != as.raw(255L),
+                   nrow = mask_rows, ncol = mask_cols)
     }
 
     row_keep <- rowSums(non_white) > 0L

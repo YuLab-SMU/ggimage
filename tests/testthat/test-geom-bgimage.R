@@ -153,6 +153,22 @@ test_that("geom_bgimage() validates the anchoring arguments", {
     expect_error(bgimage_anchor_plot(img, pixel = c(1, 2)), "scale")
     expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), scale = -1), "scale")
     expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), scale = 0), "scale")
+    ## an infinite or missing scale would place an infinite extent in the panel
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), scale = Inf), "scale")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), scale = -Inf), "scale")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), scale = NA_real_), "scale")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), scale = NaN), "scale")
+    ## ... and so would a non-finite anchor point
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), x = NA_real_, scale = 0.01), "`x`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), x = Inf, scale = 0.01), "`x`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), x = NaN, scale = 0.01), "`x`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), y = NA_real_, scale = 0.01), "`y`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), y = Inf, scale = 0.01), "`y`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), y = -Inf, scale = 0.01), "`y`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), x = c(0, 1), scale = 0.01), "`x`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), y = c(0, 1), scale = 0.01), "`y`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), x = "a", scale = 0.01), "`x`")
+    expect_error(bgimage_anchor_plot(img, pixel = c(1, 2), y = "a", scale = 0.01), "`y`")
     expect_error(bgimage_anchor_plot(img, pixel = c(size[["width"]] + 1, 2), scale = 0.01),
                  "outside the image")
     expect_error(bgimage_anchor_plot(img, pixel = c(2, size[["height"]] + 1), scale = 0.01),

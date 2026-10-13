@@ -248,3 +248,48 @@ test_that("the image key applies the layer's image_fun", {
     expect_equal(as.character(plain$raster[1, 1]), "#ffffffff")
     expect_equal(as.character(tinted$raster[1, 1]), "#ff0000ff")
 })
+
+test_that("the transform key separates missing colour from a real one", {
+    key <- function(colour, opacity = 1, angle = 0) {
+        ggimage:::image_transform_key("base", angle, colour, opacity, NULL)
+    }
+
+    ## "" and NA were mapped to the same empty component as each other and as
+    ## a real colour's absence; a real colour may never share their key
+    expect_identical(key(NA_character_), key(""))
+    expect_identical(key(NA_character_), key(NULL))
+    expect_identical(key(""), key(NULL))
+    expect_false(identical(key(""), key("red")))
+    expect_false(identical(key(NA_character_), key("red")))
+    expect_false(identical(key("blue"), key("red")))
+    expect_false(identical(key(""), key("v:")))
+
+    ## "no colour" keeps one key, so an untinted image is not cached twice
+    expect_length(unique(c(key(NA_character_), key(""), key(NULL))), 1L)
+    ## and an NA alpha stays distinct from an opaque one
+    expect_false(identical(key("red", NA_real_), key("red", 1)))
+    ## the pre-existing "NA angle means no rotation" aliasing is unchanged
+    expect_identical(key("red", angle = NA_real_), key("red", angle = 0))
+})
+
+test_that("the transform key routes each tint to its own cached value", {
+    ## the key is what the image caches are indexed by, so a collision means
+    ## a tinted image is drawn where an untinted one belongs
+    memo <- new.env(hash = TRUE, parent = emptyenv())
+    store <- function(colour, value) {
+        assign(ggimage:::image_transform_key("base", 0, colour, 1, NULL),
+               value, envir = memo)
+    }
+    read <- function(colour) {
+        get(ggimage:::image_transform_key("base", 0, colour, 1, NULL),
+            envir = memo)
+    }
+
+    store("red", "tinted")
+    store("", "plain")
+
+    expect_identical(read(""), "plain")
+    expect_identical(read(NA_character_), "plain")
+    expect_identical(read("red"), "tinted")
+    expect_false(identical(read(""), read("red")))
+})

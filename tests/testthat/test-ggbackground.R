@@ -99,3 +99,49 @@ test_that("ggbackground works on discrete axes", {
   expect_equal(ggbackground_ranges(with_background), ggbackground_ranges(plot))
   expect_length(ggbackground_rasters(ggplot2::ggplotGrob(with_background)), 1L)
 })
+
+ggbackground_points <- function(plot) {
+  ## every row that is actually drawn, the background layer included
+  do.call(rbind, lapply(ggplot2::ggplot_build(plot)$data,
+                        function(layer) layer[, c("x", "y")]))
+}
+
+test_that("ggbackground reads layer-level aesthetics", {
+  background <- tempfile(fileext = ".png")
+  magick::image_write(
+    magick::image_blank(width = 8, height = 8, color = "grey"),
+    path = background
+  )
+
+  ## the common `ggplot() + geom_point(data = d, aes(x, y))` idiom maps x and y
+  ## on the layer, so the plot-level mapping is empty and the anchor used to
+  ## fall back to a hard-coded (0.5, 0.5) row
+  data <- data.frame(x = c(100, 200), y = c(1, 2))
+  plot <- ggplot2::ggplot() +
+    ggplot2::geom_point(data = data, ggplot2::aes(x, y))
+  with_background <- ggimage::ggbackground(plot, background)
+
+  expect_equal(ggbackground_ranges(with_background), ggbackground_ranges(plot))
+  expect_false(any(ggbackground_points(with_background)$x == 0.5))
+  expect_length(ggbackground_rasters(ggplot2::ggplotGrob(with_background)), 1L)
+})
+
+test_that("ggbackground reads layer-level aesthetics on discrete axes", {
+  background <- tempfile(fileext = ".png")
+  magick::image_write(
+    magick::image_blank(width = 8, height = 8, color = "grey"),
+    path = background
+  )
+
+  data <- data.frame(g = letters[1:3], y = c("p", "q", "r"),
+                     stringsAsFactors = TRUE)
+  plot <- ggplot2::ggplot() +
+    ggplot2::geom_point(data = data, ggplot2::aes(g, y))
+  with_background <- ggimage::ggbackground(plot, background)
+
+  ## the numeric fallback aborted with "Discrete value supplied to a
+  ## continuous scale"
+  expect_silent(ggplot2::ggplot_build(with_background))
+  expect_equal(ggbackground_ranges(with_background), ggbackground_ranges(plot))
+  expect_length(ggbackground_rasters(ggplot2::ggplotGrob(with_background)), 1L)
+})

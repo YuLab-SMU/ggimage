@@ -100,7 +100,6 @@ test_that("download_phylopic skips non-empty existing duplicate targets", {
     dir.create(tmp)
     on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
     id <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
-    dir.create(file.path(tmp, id))
     source <- file.path(tmp, "source.svg")
     writeLines("source", source)
     local_mocked_bindings(
@@ -114,7 +113,9 @@ test_that("download_phylopic skips non-empty existing duplicate targets", {
 
     result <- ggimage::download_phylopic(c(id, id), destdir = tmp)
 
-    target <- paste0(tmp, "/", id, "source.svg")
+    ## a `file://` URL carries no uid, so the name falls back to a digest of
+    ## the input; it is stable across calls and carries no separator
+    target <- result[[1L]]
     expect_identical(unname(result), c(target, target))
     expect_identical(readLines(target), "source")
 })
@@ -124,11 +125,12 @@ test_that("download_phylopic installs downloads atomically", {
     dir.create(tmp)
     on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
     id <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
-    target <- paste0(tmp, "/", id, "vector.svg")
+    target <- paste0(tmp, "/", id, ".svg")
     calls <- 0L
     local_mocked_bindings(
         phylopic = function(id) {
-            url <- rep("mock://vector.svg", length(id))
+            url <- rep(paste0("https://images.phylopic.org/images/", id,
+                              "/vector.svg"), length(id))
             names(url) <- names(id)
             url
         },
@@ -150,6 +152,63 @@ test_that("download_phylopic installs downloads atomically", {
     ## downloader again.
     ggimage::download_phylopic(id, destdir = tmp)
     expect_identical(calls, 1L)
+})
+
+test_that("download_phylopic keys destfile on the resolved uid", {
+    tmp <- tempfile("ggimage-phylopic-uid-")
+    dir.create(tmp)
+    on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+    uid_a <- "6b4e4b00-5f13-4967-b5aa-842f84052e7c"
+    uid_b <- "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    ## the resolver maps a name and its uid onto the same image, while two
+    ## near-identical inputs ("x" / "xvector") map onto different ones
+    local_mocked_bindings(
+        phylopic = function(id) {
+            id <- as.character(id)
+            u <- ifelse(id %in% c(uid_b, "xvector"), uid_b, uid_a)
+            url <- paste0("https://images.phylopic.org/images/", u,
+                          "/vector.svg")
+            names(url) <- names(id)
+            url
+        },
+        .phylopic_download = function(url, destfile, ...) {
+            writeLines("svg", destfile)
+            0L
+        },
+        .package = "ggimage"
+    )
+
+    by_uid <- ggimage::download_phylopic(uid_a, destdir = tmp)
+    by_name <- ggimage::download_phylopic("Canis lupus", destdir = tmp)
+    ## the name input and the uid input land on ONE file
+    expect_identical(unname(by_uid), unname(by_name))
+    expect_identical(basename(by_uid), paste0(uid_a, ".svg"))
+
+    ## one file per distinct uid, and no path separator in any name
+    result <- ggimage::download_phylopic(c("x", "xvector", "a/b c"),
+                                         destdir = tmp)
+    expect_identical(basename(unname(result)),
+                     c(paste0(uid_a, ".svg"), paste0(uid_b, ".svg"),
+                       paste0(uid_a, ".svg")))
+    expect_false(any(grepl("[/\\\\ ]", basename(unname(result)))))
+    expect_identical(sort(list.files(tmp)),
+                     sort(c(paste0(uid_a, ".svg"), paste0(uid_b, ".svg"))))
+})
+
+test_that("download_phylopic falls back to a digest for an unparsable URL", {
+    ## a URL whose shape carries no uid keeps a stable, separator-free name
+    expect_identical(
+        ggimage:::.phylopic_dest_name("mock://vector.svg", "Canis lupus"),
+        paste0("phylopic-", digest::digest("Canis lupus"), ".svg")
+    )
+
+    two <- ggimage:::.phylopic_dest_name(
+        c("mock://vector.svg", "mock://other.svg"), c("a", "b")
+    )
+    expect_identical(two, vapply(c("a", "b"), function(x) {
+        paste0("phylopic-", digest::digest(x), ".svg")
+    }, character(1), USE.NAMES = FALSE))
 })
 
 test_that("embedded vector links are extracted without network access", {
@@ -204,4 +263,53 @@ test_that("a local file or an absolute URL is the silhouette itself", {
     plot <- ggplot2::ggplot(data.frame(x = 1, y = 1), ggplot2::aes(x, y)) +
         ggimage::geom_phylopic(ggplot2::aes(image = svg), size = 0.4)
     expect_length(found(ggplot2::ggplotGrob(plot)), 1L)
+})
+
+test_that("autocomplete_name() keeps the names that did match", {
+    ## one unknown name must not discard the whole batch, and the informative
+    ## message stays as a warning, as phylopic_uid() already does
+    local_mocked_bindings(
+        .autocomplete_name_search = function(name, ...) {
+            if (grepl("zzzz", name)) {
+                warning("No matching names found for ", name, ". ", call. = FALSE)
+                return(data.frame(name = as.character(name),
+                                  match_name = NA_character_,
+                                  stringsAsFactors = FALSE))
+            }
+            data.frame(name = name,
+                       match_name = c(paste0(name, " a"), paste0(name, " b")),
+                       stringsAsFactors = FALSE)
+        },
+        .package = "ggimage"
+    )
+
+    expect_warning(
+        result <- ggimage::autocomplete_name(c("Canis", "zzzznotataxon")),
+        "No matching names found for zzzznotataxon"
+    )
+    expect_s3_class(result, "data.frame")
+    expect_identical(result$name, c("Canis", "Canis", "zzzznotataxon"))
+    ## the bad name contributes an NA-ish row instead of aborting the call
+    expect_identical(result$match_name, c("Canis a", "Canis b", NA_character_))
+})
+
+test_that("autocomplete_name() binds results with differing columns", {
+    ## `do.call(rbind, x)` refused frames with different columns, which turned
+    ## one partial response into a failure of the whole call
+    local_mocked_bindings(
+        .autocomplete_name_search = function(name, ...) {
+            if (identical(name, "a")) {
+                return(data.frame(name = "a", match_name = "A",
+                                  stringsAsFactors = FALSE))
+            }
+            data.frame(name = "b", match_name = "B", extra = "E",
+                       stringsAsFactors = FALSE)
+        },
+        .package = "ggimage"
+    )
+
+    result <- ggimage::autocomplete_name(c("a", "b"))
+    expect_identical(result$name, c("a", "b"))
+    expect_identical(result$match_name, c("A", "B"))
+    expect_identical(result$extra, c(NA_character_, "E"))
 })
