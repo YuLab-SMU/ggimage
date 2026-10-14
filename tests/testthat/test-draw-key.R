@@ -206,7 +206,11 @@ test_that("a key image that cannot be read costs its own key only", {
     two$image <- c(missing_file, system.file("extdata/Rlogo.png", package = "ggimage"))
     withr::local_options(ggimage.keytype = "image")
 
-    expect_warning(key <- draw_key_image(two, list(), 20), "unable to open image")
+    ## ImageMagick words this differently per platform and build:
+    ## "unable to open image ..." on the Unix builds, "UnableToOpenBlob ..."
+    ## through Windows' Rterm.exe -- the file name is in both.
+    expect_warning(key <- draw_key_image(two, list(), 20),
+                   "unable to open image|UnableToOpenBlob|ggimage-no-such-key-file")
     expect_length(key$children, 2L)
     expect_true(inherits(key$children[[1]], "zeroGrob"))
     expect_true(inherits(key$children[[2]], "rastergrob"))

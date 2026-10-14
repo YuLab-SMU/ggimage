@@ -292,6 +292,12 @@ test_that("an abandoned download lock is taken over, not waited out", {
 
     dir.create(lock)
     writeLines("999999", file.path(lock, "pid"))
+    ## Windows has no safe liveness probe -- tools::pskill() there *terminates*
+    ## a process instead of testing it -- so a foreign PID is judged by the
+    ## lock's age alone on that platform.  Backdate the stamp past the age
+    ## ceiling so both platforms see the lock as abandoned; on Unix the dead
+    ## PID short-circuits before the age is even read.
+    Sys.setFileTime(file.path(lock, "pid"), Sys.time() - 2 * 3600)
     expect_true(ggimage:::.phylopic_lock_acquire(lock, timeout = 2, poll = 0.05))
     ## the takeover stamps the new owner
     expect_equal(as.integer(readLines(file.path(lock, "pid"))), Sys.getpid())

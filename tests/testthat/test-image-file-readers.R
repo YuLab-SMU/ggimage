@@ -102,20 +102,29 @@ test_that("an SVG is read on a machine without rsvg", {
     ## which errored there and the image drew as nothing.  (image_read() warns
     ## about the coarser renderer on builds without the librsvg delegate; the
     ## warning is for the user, who can install rsvg, not a test failure.)
-    local_mocked_bindings(.has_rsvg = function() FALSE, .package = "ggimage")
-    dispatched <- tryCatch(suppressWarnings(ggimage:::.read_image_file(svg)),
-                           error = function(e) e)
+    ##
+    ## Which renderer ran is observed through the fallback binding, not
+    ## through output metadata: ImageMagick builds disagree about the density
+    ## they tag an SVG render with (300 where the internal rasteriser honours
+    ## the request, 118 on Debian's build via the librsvg delegate), so a
+    ## density assertion would fail on some platforms against correct code.
+    fell_back <- FALSE
+    real_fallback <- ggimage:::.read_svg_without_rsvg
+    local_mocked_bindings(
+        .has_rsvg = function() FALSE,
+        .read_svg_without_rsvg = function(img) {
+            fell_back <<- TRUE
+            suppressWarnings(real_fallback(img))
+        },
+        .package = "ggimage"
+    )
+    dispatched <- tryCatch(ggimage:::.read_image_file(svg), error = function(e) e)
     if (inherits(dispatched, "error")) {
         fail(paste("the dispatcher could not read an SVG without rsvg:",
                    conditionMessage(dispatched)))
     } else {
+        expect_true(fell_back, label = "the rsvg-less fallback renderer ran")
         expect_true(methods::is(dispatched, "magick-image"))
-        ## proving the fallback actually ran, not just that *something* read
-        ## the file: the fallback renders at .vector_density, while
-        ## image_read_svg() ignores density and renders at the intrinsic size.
-        ## Without this assertion the test would still pass against code that
-        ## calls image_read_svg() even when rsvg is missing.
-        expect_equal(as.numeric(sub("x.*$", "", magick::image_info(dispatched)$density)), 300)
     }
 })
 
@@ -149,18 +158,33 @@ test_that("a query-like suffix names the file, it is not the extension", {
     dir <- tempfile()
     dir.create(dir)
     red <- file.path(dir, "red.png")
-    blue <- file.path(dir, "blue.png?token=1")
     magick::image_write(magick::image_blank(4, 4, color = "red"), red)
-    magick::image_write(magick::image_blank(4, 4, color = "blue"), blue)
 
-    ## dropping the suffix before opening the reference would read red.png here
-    data <- magick::image_data(ggimage:::.read_image_file(blue), channels = "RGB")
-    expect_identical(as.character(data[, 1, 1]), c("00", "00", "ff"))
+    ## A query string is the real-world case, but '?' is not a legal character
+    ## in a Windows file name, so that suffix can only be created where the
+    ## file system accepts it.  '#' goes through the same strip (`[?#].*$`)
+    ## and is legal everywhere, so both spellings are exercised where they
+    ## can be, and at least one of them everywhere.
+    suffixes <- if (.Platform$OS.type == "windows") {
+        "#token=1"
+    } else {
+        c("?token=1", "#token=1")
+    }
+
+    for (k in seq_along(suffixes)) {
+        blue <- file.path(dir, sprintf("blue%d.png%s", k, suffixes[k]))
+        magick::image_write(magick::image_blank(4, 4, color = "blue"), blue)
+
+        ## dropping the suffix before *opening* the file would read a
+        ## different (non-existent) path here
+        data <- magick::image_data(ggimage:::.read_image_file(blue), channels = "RGB")
+        expect_identical(as.character(data[, 1, 1]), c("00", "00", "ff"))
+    }
 
     ## the suffix is ignored where the format is decided, so the 300 dpi branch
     ## still applies to a name that carries one
     eps <- write_vector("eps")
-    query <- file.path(dir, "logo.eps?raw=1")
+    query <- file.path(dir, paste0("logo.eps", suffixes[1]))
     file.copy(eps, query, overwrite = TRUE)
     info <- magick::image_info(read_or_skip(query))
     expect_equal(as.numeric(sub("x.*$", "", info$density)), 300)

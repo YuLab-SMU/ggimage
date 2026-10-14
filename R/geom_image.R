@@ -821,6 +821,16 @@ apply_image_opacity <- function(img, opacity) {
 ## rsvg installed.
 .has_rsvg <- function() requireNamespace("rsvg", quietly = TRUE)
 
+## The rsvg-less renderer, as its own binding so a test can observe that the
+## fallback ran.  Asserting on output metadata instead would be fragile: ImageMagick
+## builds disagree about what density an SVG render carries (300 where the
+## internal rasteriser honours the request, 118 on Debian's build through the
+## librsvg delegate), so no single value is portable enough to prove which
+## renderer ran.
+.read_svg_without_rsvg <- function(img) {
+    magick::image_read(img, density = .vector_density)
+}
+
 ## Dispatch on the extension, case-insensitively: `.EPS` from a Windows export
 ## used to miss the vector branches and land on the 72 dpi default.  A query
 ## string is only removed to find the extension -- it is part of the reference
@@ -831,7 +841,7 @@ apply_image_opacity <- function(img, opacity) {
            "svg" = if (.has_rsvg()) {
                magick::image_read_svg(img)
            } else {
-               magick::image_read(img, density = .vector_density)
+               .read_svg_without_rsvg(img)
            },
            "pdf" = ,
            "eps" = ,
