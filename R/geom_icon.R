@@ -13,7 +13,10 @@ geom_icon <- function(mapping = NULL, data = NULL, inherit.aes = TRUE,
 
 icon <- function(id) {
     ## paste0('https://raw.githubusercontent.com/ionic-team/ionicons/main/src/svg/', id, '.svg')
-    url <- paste0('https://ionicons.com/ionicons/svg/', id, '.svg')
+    ## ionicons.com now 301s to ionic.io/ionicons; the direct host serves the
+    ## same files with no redirect, so a blocked or redirect-stripping network
+    ## is the only failure left.
+    url <- paste0('https://ionic.io/ionicons/ionicons/svg/', id, '.svg')
 
     check_url(url)
 }

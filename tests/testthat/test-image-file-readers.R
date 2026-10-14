@@ -82,6 +82,57 @@ test_that("a PDF is read at 300 dpi without pdftools", {
     }
 })
 
+test_that("an SVG is read on a machine without rsvg", {
+    skip_if_not_installed("magick")
+
+    svg <- tempfile(fileext = ".svg")
+    writeLines(c('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">',
+                 '<rect width="10" height="10" fill="#00ff00"/></svg>'), svg)
+
+    ## skip only where ImageMagick itself has no SVG delegate at all.  The
+    ## plain read warns about the coarse renderer on builds without the
+    ## librsvg delegate -- that is the point of this test, not a failure.
+    reference <- tryCatch(suppressWarnings(magick::image_read(svg)),
+                          error = function(e) NULL)
+    skip_if(is.null(reference), "no SVG rasteriser on this machine")
+
+    ## the condition `R CMD check --as-cran` creates: rsvg is hidden from the
+    ## checked package because it is not a declared dependency.  Before the
+    ## fix the dispatcher called magick::image_read_svg() unconditionally,
+    ## which errored there and the image drew as nothing.  (image_read() warns
+    ## about the coarser renderer on builds without the librsvg delegate; the
+    ## warning is for the user, who can install rsvg, not a test failure.)
+    local_mocked_bindings(.has_rsvg = function() FALSE, .package = "ggimage")
+    dispatched <- tryCatch(suppressWarnings(ggimage:::.read_image_file(svg)),
+                           error = function(e) e)
+    if (inherits(dispatched, "error")) {
+        fail(paste("the dispatcher could not read an SVG without rsvg:",
+                   conditionMessage(dispatched)))
+    } else {
+        expect_true(methods::is(dispatched, "magick-image"))
+        ## proving the fallback actually ran, not just that *something* read
+        ## the file: the fallback renders at .vector_density, while
+        ## image_read_svg() ignores density and renders at the intrinsic size.
+        ## Without this assertion the test would still pass against code that
+        ## calls image_read_svg() even when rsvg is missing.
+        expect_equal(as.numeric(sub("x.*$", "", magick::image_info(dispatched)$density)), 300)
+    }
+})
+
+test_that("an SVG still prefers rsvg where it is installed", {
+    skip_if_not_installed("magick")
+    skip_if(!ggimage:::.has_rsvg(), "rsvg not installed on this machine")
+
+    svg <- tempfile(fileext = ".svg")
+    writeLines(c('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">',
+                 '<rect width="10" height="10" fill="#00ff00"/></svg>'), svg)
+
+    ## the fallback must not silently replace the sharp renderer
+    via_rsvg <- magick::image_info(magick::image_read_svg(svg))
+    dispatched <- magick::image_info(ggimage:::.read_image_file(svg))
+    expect_equal(dispatched$width, via_rsvg$width)
+})
+
 test_that("raster images are read unchanged", {
     skip_if_not_installed("magick")
 

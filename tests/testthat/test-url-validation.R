@@ -305,7 +305,7 @@ test_that("remote wrappers share deduplicating URL validation", {
     )
     expect_identical(
         ggimage:::icon(c("add", "add")),
-        c("https://ionicons.com/ionicons/svg/add.svg", "https://ionicons.com/ionicons/svg/add.svg")
+        c("https://ionic.io/ionicons/ionicons/svg/add.svg", "https://ionic.io/ionicons/ionicons/svg/add.svg")
     )
     expect_identical(
         ggimage:::emoji(c("1f600", "1f600")),
@@ -323,7 +323,7 @@ test_that("remote wrappers share deduplicating URL validation", {
         checked,
         c(
             "https://raw.githubusercontent.com/fonttools/region-flags/refs/heads/gh-pages/png/US.png",
-            "https://ionicons.com/ionicons/svg/add.svg",
+            "https://ionic.io/ionicons/ionicons/svg/add.svg",
             "https://raw.githubusercontent.com/jdecked/twemoji/main/assets/72x72/1f600.png",
             "https://raw.githubusercontent.com/Templarian/slack-emoji-pokemon/master/emojis/pikachu.png"
         )

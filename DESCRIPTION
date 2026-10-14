@@ -36,7 +36,8 @@ Imports:
 Suggests:
     httr,
     quarto,
-    testthat (>= 3.0.0)
+    rsvg,
+    testthat (>= 3.2.1)
 VignetteBuilder: quarto
 ByteCompile: true
 License: Artistic-2.0
@@ -44,4 +45,4 @@ URL: https://github.com/YuLab-SMU/ggimage
 BugReports: https://github.com/YuLab-SMU/ggimage/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-Config/roxygen2/version: 8.1.0
+Config/roxygen2/version: 8.1.1

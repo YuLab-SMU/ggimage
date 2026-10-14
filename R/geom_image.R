@@ -806,8 +806,20 @@ apply_image_opacity <- function(img, opacity) {
 ## Ask for 300 dpi instead.  `image_read()` renders every page of a PDF through
 ## its Ghostscript delegate, so the `pdftools`-backed reader this code used for
 ## `.pdf` bought nothing and broke the format wherever `pdftools` is missing,
-## which is the common case -- magick only suggests it.
+## which is the common case -- magick only suggests it.  `.svg` had the same
+## flaw: `magick::image_read_svg()` renders through the `rsvg` package, which
+## magick itself only *suggests* and this package never declared, so wherever
+## `rsvg` is absent -- a bare magick install, or a `R CMD check --as-cran`
+## sandbox, whose filtered test library hides every undeclared package --
+## reading an `.svg` errored outright and the image drew as nothing.  Prefer
+## `rsvg` when it is present, and fall back to `image_read()` otherwise: that
+## renders an `.svg` on its own (more coarsely, and it warns about it), and a
+## coarse image beats an error and beats an empty panel.
 .vector_density <- 300
+
+## Separate binding so the fallback can be exercised on machines that do have
+## rsvg installed.
+.has_rsvg <- function() requireNamespace("rsvg", quietly = TRUE)
 
 ## Dispatch on the extension, case-insensitively: `.EPS` from a Windows export
 ## used to miss the vector branches and land on the 72 dpi default.  A query
@@ -816,7 +828,11 @@ apply_image_opacity <- function(img, opacity) {
 .read_image_file <- function(img) {
     ext <- tolower(tools::file_ext(sub("[?#].*$", "", img)))
     image <- switch(ext,
-           "svg" = magick::image_read_svg(img),
+           "svg" = if (.has_rsvg()) {
+               magick::image_read_svg(img)
+           } else {
+               magick::image_read(img, density = .vector_density)
+           },
            "pdf" = ,
            "eps" = ,
            "ps" = magick::image_read(img, density = .vector_density),

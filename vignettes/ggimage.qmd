@@ -418,7 +418,7 @@ d$icon <- sample(c("power", "wifi", "pie-chart"), 10, replace = TRUE)
 ggplot(d, aes(x, y)) + geom_icon(aes(image = icon), size = .1)
 ```
 
-See <https://ionicons.com/> for the icon names; `list.icon()` returns the ones
+See <https://ionic.io/ionicons> for the icon names; `list.icon()` returns the ones
 this version knows about.
 
 ### geom_flag
