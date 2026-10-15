@@ -1,3 +1,11 @@
+## ggimage 0.3.8
+
++ `geom_image()` and `geom_subview()` key the image cache on the pixels of a `magick` object instead of the PNG bytes of it. ImageMagick stamps a `tIME` chunk into those bytes, so the key of one and the same image changed when the two lookups happened to straddle a second boundary: the cache missed, the image was converted again, and `test-geom-subview-cache.R` failed -- on CRAN's Fedora machine only, because whether the two calls land in the same second depends on the machine's speed, not on the code
++ images that differ only in a frame after the first no longer share one cache key: `image_write()` serialises the first frame, so a multi-frame image was keyed as if the rest did not exist, and the cache would hand one row's animation to another row with different later frames
++ `ggpreview()` previews the grob it already has when the file it just saved cannot be read back, warning instead of failing with "Image must have at least 1 frame to write a bitmap". `device = "pdf"` writes PDF bytes into a name ending in `.png`, and where the build has no Ghostscript delegate that read answers with an image of no frames
++ an image with no frames -- what an ImageMagick build with no delegate for its format hands back -- now warns and draws nothing, the contract an unreadable image already has. It used to be keyed on its external pointer, which every `magick` object shares, so the cache answered with some other row's image
++ `.read_image_file()` and `image_read2()` report a delegate-less read as a failed one instead of returning an empty image that aborts later, far from the cause, when it is drawn
+
 ## ggimage 0.3.7
 
 + `geom_bgimage()` accepts `pixel`, `x`, `y` and `scale` to place the image in data coordinates: the chosen pixel of the image is anchored to a data point, and the placement does not depend on the size of the image or of the panel (2026-10-10, Sat, #25)

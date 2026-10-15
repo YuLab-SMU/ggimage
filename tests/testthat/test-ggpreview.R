@@ -49,10 +49,13 @@ test_that("ggpreview() cleans up on whatever device draws it", {
     expect_identical(ggpreview_png_count(), before)
 
     ## `device = "pdf"` routes ggsave through a different device than the
-    ## default and must clean up just the same
+    ## default and must clean up just the same.  Where the build has no
+    ## delegate for reading that file back, ggpreview() warns and previews the
+    ## plot itself -- the cleanup is what this assertion is about, so the
+    ## warning is expected rather than a failure.
     before <- ggpreview_png_count()
-    ggpreview_draw(plot = ggpreview_test_plot(), width = 2, height = 2,
-                   device = "pdf")
+    suppressWarnings(ggpreview_draw(plot = ggpreview_test_plot(), width = 2,
+                                    height = 2, device = "pdf"))
     expect_identical(ggpreview_png_count(), before)
 
     ## a non-ggplot object goes through `ggplotify::as.grob()` and must clean
@@ -75,4 +78,33 @@ test_that("ggpreview() only unlinks its own file", {
 
     expect_identical(readLines(other), "keep")
     expect_true(file.exists(file.path(dir, "out.png")))
+})
+
+test_that("ggpreview() previews the grob when the file cannot be read back", {
+    ## On a build whose ImageMagick has no Ghostscript delegate, reading a PDF
+    ## answers with an image of *no frames* rather than an error, and the
+    ## failure only surfaces later, inside as.grob(): "Image must have at least
+    ## 1 frame to write a bitmap".  The preview has a usable grob already, so
+    ## warn and draw that instead.
+    empty <- suppressWarnings(magick::image_blank(4, 4, color = "red")[0])
+    local_mocked_bindings(image_read = function(...) empty, .package = "ggimage")
+
+    before <- ggpreview_png_count()
+    expect_warning(ggpreview_draw(plot = ggpreview_test_plot(),
+                                  width = 2, height = 2),
+                   "could not re-read")
+    ## nothing was leaked while doing it
+    expect_identical(ggpreview_png_count(), before)
+})
+
+test_that("ggpreview() reports a file that was not written at all", {
+    ## ggsave() failing leaves nothing to read back, and the warning must say
+    ## so rather than abort the call from inside magick
+    local_mocked_bindings(image_read = function(...) {
+        stop("no delegate for this format", call. = FALSE)
+    }, .package = "ggimage")
+
+    expect_warning(ggpreview_draw(plot = ggpreview_test_plot(),
+                                  width = 2, height = 2),
+                   "no delegate")
 })

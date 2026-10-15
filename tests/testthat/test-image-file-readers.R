@@ -21,9 +21,16 @@ write_vector <- function(ext, width = 2, height = 1) {
 ## in that case only.  Testing the plain reader first keeps a real failure
 ## inside the dispatcher reportable instead of silently skipped.
 read_or_skip <- function(path) {
-    skip_if(is.null(tryCatch(magick::image_read(path), error = function(e) NULL)),
+    skip_if(!can_read(magick::image_read(path)),
             "no rasteriser for this format on this machine")
-    ggimage:::.read_image_file(path)
+    dispatched <- tryCatch(ggimage:::.read_image_file(path), error = function(e) e)
+    ## a delegate-less build now says so instead of returning no frames, so the
+    ## machine is not able to run this assertion after all
+    if (inherits(dispatched, "error")) {
+        skip(paste("no rasteriser for this format on this machine:",
+                   conditionMessage(dispatched)))
+    }
+    dispatched
 }
 
 test_that("vector images are read at a resolution that keeps them sharp", {
@@ -59,8 +66,9 @@ test_that("a PDF is read at 300 dpi without pdftools", {
 
     ## Skip only where the machine has no PDF rasteriser at all -- not merely
     ## because the dispatcher failed, which is the bug this test guards.
-    reference <- tryCatch(magick::image_read(pdf, density = 300), error = function(e) NULL)
-    skip_if(is.null(reference), "no PDF rasteriser on this machine")
+    reference <- tryCatch(magick::image_read(pdf, density = 300),
+                          error = function(e) NULL)
+    skip_if(!can_read(reference), "no PDF rasteriser on this machine")
 
     ## Record the failure mode of the reader the dispatcher used before: it
     ## needs pdftools, which magick only suggests.
@@ -94,7 +102,7 @@ test_that("an SVG is read on a machine without rsvg", {
     ## librsvg delegate -- that is the point of this test, not a failure.
     reference <- tryCatch(suppressWarnings(magick::image_read(svg)),
                           error = function(e) NULL)
-    skip_if(is.null(reference), "no SVG rasteriser on this machine")
+    skip_if(!can_read(reference), "no SVG rasteriser on this machine")
 
     ## the condition `R CMD check --as-cran` creates: rsvg is hidden from the
     ## checked package because it is not a declared dependency.  Before the

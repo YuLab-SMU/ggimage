@@ -37,10 +37,27 @@ ggpreview <- function(filename = NULL, plot = last_plot(),
         width = width, height = height, units = units, ...)
 
     ## as.ggplot(image_read(filename))
-    np <- as.grob(image_read(filename))
+    ## Reading the file back is what shows the figure at the size it was
+    ## saved at.  Where that fails -- a `device = "pdf"` save writes PDF bytes
+    ## into a name ending in `.png`, and a build with no Ghostscript delegate
+    ## answers such a read with an image of *no frames* rather than an error,
+    ## which `as.grob()` then reports as "Image must have at least 1 frame to
+    ## write a bitmap" -- preview the grob this call already has instead.
+    preview <- tryCatch({
+        image <- image_read(filename)
+        if (!.image_has_frames(image)) {
+            stop("the file was read back with no frames", call. = FALSE)
+        }
+        as.grob(image)
+    }, error = function(e) {
+        warning("ggpreview() could not re-read '", filename,
+                "'; showing the plot itself: ", conditionMessage(e),
+                call. = FALSE)
+        plot
+    })
 
     grid.newpage()
-    grid.draw(np)
+    grid.draw(preview)
 }
 
 

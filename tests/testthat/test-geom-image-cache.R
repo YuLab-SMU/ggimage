@@ -368,3 +368,65 @@ test_that("an unknown eviction policy falls back to lru", {
   ggimage:::cache_set_image("b", "b")
   expect_equal(ggimage:::get_image_cache_size(), 1L)
 })
+
+test_that("the content key does not depend on the wall clock", {
+  ## `image_write(format = "png")` stamps a `tIME` chunk into the bytes, so a
+  ## key taken from them changes when the two lookups straddle a second
+  ## boundary.  The cache and the subview memo then miss and the image is
+  ## converted a second time -- which is what failed on CRAN's Fedora machine
+  ## and passed everywhere else, because it depends on where in the second the
+  ## test happens to run.  Cross a boundary deliberately, so this test proves
+  ## the same thing on every machine.
+  crossed <- function() {
+    before <- as.integer(Sys.time())
+    until <- before + 1 + stats::runif(1)
+    while (as.integer(Sys.time()) < until) Sys.sleep(0.05)
+  }
+
+  image <- magick::image_blank(8, 8, color = "red")
+  first <- ggimage:::magick_image_key(image)
+  crossed()
+  expect_identical(ggimage:::magick_image_key(image), first)
+  expect_match(first, "^magick:8x8x1:[0-9a-f]{40}$")
+
+  ## the same content reached through a file shares the key, so the cache is
+  ## still doing its job across the two ways of having an image
+  path <- tempfile(fileext = ".png")
+  on.exit(unlink(path), add = TRUE)
+  magick::image_write(image, path)
+  from_file <- magick::image_read(path)
+  crossed()
+  expect_identical(ggimage:::magick_image_key(from_file),
+                   ggimage:::magick_image_key(image))
+})
+
+test_that("images that differ only in a later frame do not share one key", {
+  ## `image_write()` serialises the first frame, so a key taken from it cannot
+  ## see the rest of a multi-frame image
+  red_then <- magick::image_join(magick::image_blank(10, 10, color = "red"),
+                                 magick::image_blank(10, 10, color = "blue"))
+  green_then <- magick::image_join(magick::image_blank(10, 10, color = "red"),
+                                   magick::image_blank(10, 10, color = "green"))
+
+  expect_identical(magick::image_write(red_then, format = "png"),
+                   magick::image_write(green_then, format = "png"))
+  expect_false(identical(ggimage:::magick_image_key(red_then),
+                         ggimage:::magick_image_key(green_then)))
+})
+
+test_that("an image with no frames warns and draws nothing", {
+  ## a build with no delegate for a format answers with an image of no frames
+  ## rather than an error; it must not be keyed on its pointer, which every
+  ## magick object shares, and must not abort on the attempt to report it
+  empty <- magick::image_blank(4, 4, color = "red")[0]
+  expect_identical(ggimage:::magick_image_key(empty), NULL)
+  expect_identical(ggimage:::image_cache_key(empty), NULL)
+
+  args <- function(img) {
+    list(x = 0.5, y = 0.5, size = 0.05, img = img, colour = NULL, opacity = 1,
+         angle = 0, adj = 1, image_fun = NULL, hjust = 0.5, by = "width",
+         asp = 1, use_cache = TRUE, width = NA_real_, height = NA_real_)
+  }
+  grob <- expect_warning(do.call(ggimage:::imageGrob, args(empty)), "no frames")
+  expect_s3_class(grob, "zeroGrob")
+})

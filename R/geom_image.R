@@ -469,8 +469,12 @@ image_cache_key <- function(img) {
     return(kp)
   }
   if (methods::is(img, "magick-image")) {
-    key <- magick_image_key(img)
-    if (!is.null(key)) return(key)
+    ## NULL means the content cannot be fingerprinted -- an object with no
+    ## frames, or one the build cannot write.  Falling back to digest() would
+    ## hand back the pointer key, which every magick object shares, so the
+    ## cache would answer with some other row's image; the caller is told to
+    ## treat such an image as unreadable instead.
+    return(magick_image_key(img))
   }
   digest(img)
 }
@@ -478,9 +482,36 @@ image_cache_key <- function(img) {
 #' @importFrom digest digest
 magick_image_key <- function(img) {
   info <- tryCatch(magick::image_info(img), error = function(e) NULL)
-  pixels <- tryCatch(magick::image_write(img, format = "png"),
-                     error = function(e) NULL)
-  if (is.null(info) || is.null(pixels)) return(NULL)
+  if (is.null(info) || nrow(info) == 0L) return(NULL)
+  ## The key used to be the SHA-1 of `image_write(format = "png")`, and that
+  ## hash depended on the clock: ImageMagick stamps a `tIME` chunk into the
+  ## bytes it writes, so the key of one and the same image changed whenever the
+  ## two lookups straddled a second boundary.  The cache and the subview memo
+  ## then missed and the row was converted again -- which failed on CRAN's
+  ## Fedora machine and passed elsewhere, because whether the two calls land in
+  ## the same second depends on how fast the machine is, not on this code.
+  ## The pixels themselves carry no timestamp, so key on those.
+  ##
+  ## `image_data()` is per frame, and every frame has to be read:
+  ## `image_write()` serialises only the first one, so two multi-frame images
+  ## that differ in a later frame would otherwise share a key and the cache
+  ## would draw the wrong animation.
+  frame_bytes <- function(frame) {
+    pixels <- tryCatch(magick::image_data(frame), error = function(e) NULL)
+    if (!is.null(pixels)) return(pixels)
+    ## a build that cannot export this frame's pixels still gets a clock-free
+    ## key from the stripped PNG; the plain PNG is not an option here, as its
+    ## bytes are exactly what made this key unrepeatable
+    stripped <- tryCatch(magick::image_strip(frame), error = function(e) NULL)
+    if (is.null(stripped)) return(NULL)
+    tryCatch(magick::image_write(stripped, format = "png"),
+             error = function(e) NULL)
+  }
+  pixels <- tryCatch({
+    blobs <- lapply(seq_len(nrow(info)), function(i) frame_bytes(img[i]))
+    if (any(vapply(blobs, is.null, logical(1)))) NULL else blobs
+  }, error = function(e) NULL)
+  if (is.null(pixels)) return(NULL)
   paste0("magick:", sum(info$width), "x", sum(info$height), "x",
          nrow(info), ":", digest(pixels, algo = "sha1"))
 }
@@ -831,6 +862,15 @@ apply_image_opacity <- function(img, opacity) {
     magick::image_read(img, density = .vector_density)
 }
 
+## A delegate-less ImageMagick build does not always raise: on a host without
+## Ghostscript, reading a `.pdf` hands back a magick object with *no frames at
+## all*, which then fails far away from the cause -- `grDevices::as.raster()`
+## aborts with "Image must have at least 1 frame to write a bitmap" the moment
+## the image is drawn.  Report such a read as what it is: a failed one.
+.image_has_frames <- function(image) {
+    !inherits(image, "try-error") && length(image) > 0L
+}
+
 ## Dispatch on the extension, case-insensitively: `.EPS` from a Windows export
 ## used to miss the vector branches and land on the 72 dpi default.  A query
 ## string is only removed to find the extension -- it is part of the reference
@@ -847,6 +887,10 @@ apply_image_opacity <- function(img, opacity) {
            "eps" = ,
            "ps" = magick::image_read(img, density = .vector_density),
            magick::image_read(img))
+    if (!.image_has_frames(image)) {
+        stop("ImageMagick read no frames from '", img, "'; this build has no ",
+             "delegate for that format", call. = FALSE)
+    }
     ## every page of a vector document comes back as its own frame, and a
     ## raster grob draws one image
     if (length(image) > 1L) image[1] else image
@@ -855,6 +899,20 @@ apply_image_opacity <- function(img, opacity) {
 prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TRUE,
                           image_fun_key = NULL) {
   tryCatch({
+    ## An image with no frames -- what an ImageMagick build with no delegate
+    ## for its format hands back -- cannot be drawn, and its content cannot be
+    ## fingerprinted.  It has to be caught here rather than by is_invalid()
+    ## below: that reports the value it was given, and pasting a magick object
+    ## aborts on its external pointer.  Keying it anyway would fall through to
+    ## digest(), which hashes the external pointer that every magick object
+    ## shares, so the cache would answer with some other row's image.  The
+    ## contract is the one an unreadable path already has: warn, draw nothing,
+    ## leave this slot NULL so the rows after it do not shift.
+    if (methods::is(img, "magick-image") && length(img) == 0L) {
+      warning("Image has no frames to draw")
+      return(NULL)
+    }
+
     if (is_invalid(img)) {
       warning("Invalid image path or object provided: ", paste(img, collapse=","))
       return(NULL)
@@ -872,6 +930,15 @@ prepare_image <- function(img, colour, opacity, angle, image_fun, use_cache = TR
 
     # Unified generation of base images key
     img_key <- image_cache_key(img)
+
+    ## A magick object this build cannot write at all keys as NULL for the
+    ## same reason as the empty one above: the pointer digest it would fall
+    ## back to is shared by every image, so the cache would answer with some
+    ## other row's image.
+    if (is.null(img_key)) {
+      warning("Invalid image object provided: ", class(img))
+      return(NULL)
+    }
 
     # First check the base images cache
     cached_img <- cache_get_image(img_key, use_cache)

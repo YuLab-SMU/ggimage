@@ -66,11 +66,9 @@ test_that("a positional density argument reaches image_read instead of clashing"
     graphics::box()
     grDevices::dev.off()
 
-    reference <- tryCatch(
-        magick::image_read(path, density = 300),
-        error = function(e) NULL
-    )
-    skip_if(is.null(reference), "no PDF rasteriser on this machine")
+    reference <- tryCatch(magick::image_read(path, density = 300),
+                          error = function(e) NULL)
+    skip_if(!can_read(reference), "no PDF rasteriser on this machine")
 
     ## `300` is unnamed, so it binds to the density formal of image_read(); the
     ## reader must not add a named density on top of it

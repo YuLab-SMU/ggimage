@@ -12,3 +12,4 @@ tests/testthat/_problems/
 tests/testthat/testthat-problems.rds
 vignettes/*_files/
 vignettes/*.html
+vignettes/*.R

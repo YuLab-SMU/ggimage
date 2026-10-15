@@ -22,6 +22,10 @@ image_read2 <- function(path, ..., cut_empty_space = TRUE) {
         dots$density <- .vector_density
     }
     img <- do.call(image_read, c(list(path), dots))
+    if (!.image_has_frames(img)) {
+        stop("ImageMagick read no frames from '", path, "'; this build has no ",
+             "delegate for that format", call. = FALSE)
+    }
     if (!cut_empty_space) {
         return(img)
     }

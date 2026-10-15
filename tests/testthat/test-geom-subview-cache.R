@@ -106,3 +106,27 @@ test_that("unique subviews preserve grob count and visual structure", {
     expect_equal(vapply(rects, function(x) as.character(x$gp$fill), character(1)),
                  c("red", "blue", "green"))
 })
+
+test_that("subview conversion memo reuses an image across a second boundary", {
+    ## the CRAN Fedora failure: the memo key came from PNG bytes, which carry
+    ## a `tIME` chunk, so the second lookup missed whenever the two happened to
+    ## straddle a second boundary.  Reproduce it by waiting for one deliberately
+    ## instead of relying on the machine's timing.
+    before <- as.integer(Sys.time())
+    until <- before + 1 + stats::runif(1)
+    while (as.integer(Sys.time()) < until) Sys.sleep(0.05)
+
+    calls <- 0L
+    converter <- function(x) {
+        calls <<- calls + 1L
+        ggplotify::as.grob(x)
+    }
+    memo <- ggimage:::.subview_grob_memo(converter)
+    image <- magick::image_blank(width = 2, height = 2, color = "red")
+
+    first <- memo(image)
+    crossed <- memo(image)
+
+    expect_equal(calls, 1L)
+    expect_identical(first, crossed)
+})
