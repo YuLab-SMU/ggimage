@@ -60,6 +60,7 @@ importFrom(ggplotify,
   as.ggplot,
   as.grob
 )
+importFrom(grDevices,as.raster)
 importFrom(grid,
   gList,
   gTree,

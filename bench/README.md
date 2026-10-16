@@ -16,6 +16,8 @@ Rscript bench/bench-geom-image.R
 Rscript bench/bench-geom-image-repel.R
 Rscript bench/bench-repel-solver.R
 Rscript bench/bench-image-cache.R
+Rscript bench/bench-magick-key.R
+Rscript bench/bench-gif-key.R /path/to/animation.gif
 Rscript bench/bench-image-cache-policy.R
 Rscript bench/bench-repel-broadphase.R
 Rscript bench/bench-image-utils.R
@@ -79,6 +81,16 @@ one base/transform entry, unique paths grow both counters with `n`, and
 `use_cache = FALSE` leaves both counters empty. It reports internal cache
 statistics and fails only when those deterministic policy invariants do not
 hold.
+
+`bench-magick-key.R` isolates one `magick` object's content fingerprint from
+file reading and plotting, comparing the current stable pixel key with the
+legacy PNG-byte key and pixel export alone. The legacy result is a speed
+comparison only: PNG bytes are not a safe cache key because ImageMagick can add
+a timestamp chunk.
+
+`bench-gif-key.R` accepts a local animated GIF and reports frame count, read
+time, per-frame pixel-export cost, pixel-digest cost and the full key cost. It
+keeps the GIF local and excludes file reading from the warm key-stage timings.
 
 `bench-image-cache-policy.R` exercises finite LRU entry limits and the fourth-
 phase hit/miss/eviction diagnostics using generated local files. It is a

@@ -174,6 +174,38 @@ test_that("geom_image draws legend keys of mapped colour", {
 })
 
 
+test_that("image keys reuse raster conversion within the key draw", {
+    image <- magick::image_blank(6, 6, color = "red")
+    data <- data.frame(
+        colour = c(NA_character_, NA_character_, "blue"),
+        alpha = c(1, 1, 1),
+        size = 0.05,
+        stringsAsFactors = FALSE
+    )
+    data$image <- I(list(image, image, image))
+    conversions <- 0L
+    as_raster <- grDevices::as.raster
+    testthat::local_mocked_bindings(
+        as_raster_for_key = function(x) {
+            conversions <<- conversions + 1L
+            as_raster(x)
+        },
+        .package = "ggimage"
+    )
+    withr::local_options(ggimage.keytype = "image")
+
+    key <- draw_key_image(data, list(), 20)
+
+    expect_length(key$children, 3L)
+    expect_true(all(vapply(key$children, inherits, logical(1), "rastergrob")))
+    ## Identical images and transform settings share one raster; the blue tint
+    ## has a different transform and needs its own conversion.
+    expect_equal(conversions, 2L)
+    expect_equal(as.character(key$children[[1]]$raster[1, 1]), "#ff0000ff")
+    expect_equal(as.character(key$children[[2]]$raster[1, 1]), "#ff0000ff")
+    expect_equal(as.character(key$children[[3]]$raster[1, 1]), "#0000ffff")
+})
+
 test_that("an image in the key data is drawn instead of the bundled logo", {
     red <- tempfile(fileext = ".png")
     blue <- tempfile(fileext = ".png")

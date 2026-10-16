@@ -30,6 +30,7 @@ main <- function() {
         alpha = 0.8,
         stringsAsFactors = FALSE
     )
+    key_data$image <- local_image
     old_keytype <- getOption("ggimage.keytype")
     on.exit(options(ggimage.keytype = old_keytype), add = TRUE)
 
@@ -50,9 +51,14 @@ main <- function() {
                 key_data <- key_data
                 calls <- n
                 function() {
+                    ## Repeated independent guide keys match ggplot2's normal
+                    ## callback pattern; a batched call is also useful for
+                    ## exercising panel-local raster reuse directly.
                     for (i in seq_len(calls)) {
                         draw_key(key_data, list(), 20)
                     }
+                    repeated_data <- key_data[rep(1L, calls), , drop = FALSE]
+                    draw_key(repeated_data, list(), 20)
                     invisible(NULL)
                 }
             })

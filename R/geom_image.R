@@ -189,9 +189,35 @@ GeomImage <- ggproto("GeomImage", Geom,
                              image_fun_key = image_fun_key
                          )
 
+                         ## rasterGrob() calls as.raster() on magick images;
+                         ## repeating that conversion for each row dominates
+                         ## large panels even after image preparation is batched.
+                         ## Reuse one raster per transformed image in this draw.
+                         raster_images <- new.env(hash = TRUE, parent = emptyenv())
                          grobs <- lapply(seq_len(nrow(data)), function(i){
                               ## a list column holds one image object per row
                               image <- image_at(data$image, i)
+                              prepared_image <- prepared_images[[i]]
+                              raster_image <- prepared_image
+                              if (!is.null(prepared_image) &&
+                                  methods::is(prepared_image, "magick-image") &&
+                                  data$size[i] != Inf) {
+                                raster_key <- image_transform_key(
+                                  image_cache_key(image), data$angle[i],
+                                  data$colour[i], data$alpha[i], image_fun,
+                                  image_fun_key
+                                )
+                                if (exists(raster_key, envir = raster_images,
+                                           inherits = FALSE)) {
+                                  raster_image <- get(raster_key,
+                                                      envir = raster_images,
+                                                      inherits = FALSE)
+                                } else {
+                                  raster_image <- as.raster(prepared_image)
+                                  assign(raster_key, raster_image,
+                                         envir = raster_images)
+                                }
+                              }
                               imageGrob(x = data$x[i],
                                         y = data$y[i],
                                         size = data$size[i],
@@ -201,15 +227,15 @@ GeomImage <- ggproto("GeomImage", Geom,
                                         angle = data$angle[i],
                                         adj = adjs[i],
                                         image_fun = image_fun,
-                                        image_fun_key = image_fun_key,
                                         hjust = hjust,
                                         by = by,
                                         asp = asp,
                                         use_cache = use_cache,
                                         width = widths[i],
                                         height = heights[i],
-                                        prepared_image = prepared_images[[i]],
-                                        prepared = TRUE
+                                        prepared_image = prepared_image,
+                                        prepared = TRUE,
+                                        prepared_raster = raster_image
                               )
                              })
                          ggname("geom_image", gTree(children = do.call(gList, grobs)))
@@ -482,38 +508,46 @@ image_cache_key <- function(img) {
 #' @importFrom digest digest
 magick_image_key <- function(img) {
   info <- tryCatch(magick::image_info(img), error = function(e) NULL)
-  if (is.null(info) || nrow(info) == 0L) return(NULL)
+  if (is.null(info) || nrow(info) == 0L || length(img) == 0L) return(NULL)
   ## The key used to be the SHA-1 of `image_write(format = "png")`, and that
   ## hash depended on the clock: ImageMagick stamps a `tIME` chunk into the
   ## bytes it writes, so the key of one and the same image changed whenever the
-  ## two lookups straddled a second boundary.  The cache and the subview memo
-  ## then missed and the row was converted again -- which failed on CRAN's
-  ## Fedora machine and passed elsewhere, because whether the two calls land in
-  ## the same second depends on how fast the machine is, not on this code.
-  ## The pixels themselves carry no timestamp, so key on those.
+  ## two lookups straddled a second boundary. Key on pixels instead.
   ##
   ## `image_data()` is per frame, and every frame has to be read:
   ## `image_write()` serialises only the first one, so two multi-frame images
   ## that differ in a later frame would otherwise share a key and the cache
-  ## would draw the wrong animation.
+  ## would draw the wrong animation. Each frame is explicitly coerced to raw
+  ## before digesting: hashing an R array serializes its dimensions and dimnames
+  ## too, which vary for equivalent pixels (e.g. generated images and PNGs read
+  ## back from disk).
   frame_bytes <- function(frame) {
     pixels <- tryCatch(magick::image_data(frame), error = function(e) NULL)
-    if (!is.null(pixels)) return(pixels)
+    if (!is.null(pixels)) return(as.raw(pixels))
     ## a build that cannot export this frame's pixels still gets a clock-free
     ## key from the stripped PNG; the plain PNG is not an option here, as its
     ## bytes are exactly what made this key unrepeatable
     stripped <- tryCatch(magick::image_strip(frame), error = function(e) NULL)
     if (is.null(stripped)) return(NULL)
-    tryCatch(magick::image_write(stripped, format = "png"),
-             error = function(e) NULL)
+    bytes <- tryCatch(magick::image_write(stripped, format = "png"),
+                      error = function(e) NULL)
+    if (is.null(bytes)) NULL else as.raw(bytes)
   }
-  pixels <- tryCatch({
+  ## Hash one unambiguous byte stream containing frame separators and pixels.
+  ## This preserves frame boundaries while avoiding serialization of large R
+  ## arrays (whose dimensions and dimnames differ for equivalent pixel data).
+  key_bytes <- tryCatch({
     blobs <- lapply(seq_len(nrow(info)), function(i) frame_bytes(img[i]))
-    if (any(vapply(blobs, is.null, logical(1)))) NULL else blobs
+    if (any(vapply(blobs, is.null, logical(1)))) return(NULL)
+    parts <- lapply(seq_along(blobs), function(i) {
+      dims <- charToRaw(paste0(info$width[i], "x", info$height[i], ":"))
+      c(charToRaw(paste0("frame", i, ":")), dims, blobs[[i]])
+    })
+    do.call(c, parts)
   }, error = function(e) NULL)
-  if (is.null(pixels)) return(NULL)
+  if (is.null(key_bytes)) return(NULL)
   paste0("magick:", sum(info$width), "x", sum(info$height), "x",
-         nrow(info), ":", digest(pixels, algo = "sha1"))
+         nrow(info), ":", digest(key_bytes, algo = "sha1", serialize = FALSE))
 }
 
 # generate transform key based on base_key and transform parameters
@@ -1100,6 +1134,7 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
 ##' @importFrom magick image_transparent
 ##' @importFrom magick image_rotate
 ##' @importFrom grid rasterGrob
+##' @importFrom grDevices as.raster
 ##' @importFrom grid viewport
 ##' @importFrom methods is
 ##' @importFrom tools file_ext
@@ -1107,7 +1142,8 @@ prepare_image_batch <- function(img, colour = NULL, opacity = 1, angle = 0,
 imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, hjust, by,
                      asp=1, default.units='native', use_cache=TRUE,
                      width = NA_real_, height = NA_real_, image_fun_key = NULL,
-                     prepared_image = NULL, prepared = FALSE) {
+                     prepared_image = NULL, prepared = FALSE,
+                     prepared_raster = NULL) {
   if (is.character(img) && (length(img) != 1L || is.na(img))) {
     return(zeroGrob())
   }
@@ -1126,14 +1162,26 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
     return(zeroGrob())
   }
 
+  is_magick <- methods::is(cached_img, "magick-image")
+  image_aspect <- if (is_magick && size != Inf) getAR2(cached_img) / asp else NA_real_
+  raster_img <- if (!is.null(prepared_raster)) {
+    prepared_raster
+  } else if (is_magick) {
+    as.raster(cached_img)
+  } else {
+    cached_img
+  }
+
   explicit_width <- length(width) == 1L && is.finite(width) && width > 0
   explicit_height <- length(height) == 1L && is.finite(height) && height > 0
 
   ## A fully explicit box does not depend on the source image aspect ratio.
-  asp <- if (explicit_width && explicit_height) {
-    NULL
+  if (explicit_width && explicit_height) {
+    asp <- NULL
+  } else if (is.finite(image_aspect)) {
+    asp <- image_aspect
   } else {
-    getAR2(cached_img) / asp
+    asp <- getAR2(cached_img) / asp
   }
 
   if (explicit_width || explicit_height) {
@@ -1165,7 +1213,7 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
   }
 
   grob <- rasterGrob(
-    x = x, y = y, image = cached_img, default.units = default.units,
+    x = x, y = y, image = raster_img, default.units = default.units,
     height = height, width = if (explicit_dimensions || size == Inf) width else NULL
   )
   grob

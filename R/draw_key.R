@@ -81,6 +81,12 @@ get_key_image <- function() {
     get("image", envir = cache, inherits = FALSE)
 }
 
+## Convert one prepared key image to a raster. Kept as a small helper so
+## conversion reuse can be measured without intercepting grid internals.
+as_raster_for_key <- function(image) {
+    as.raster(image)
+}
+
 ## One key per group, so a legend can tell categories apart by their pictures.
 ## Layers that map no image, and keys requested by hand without one, keep the
 ## bundled logo.
@@ -125,22 +131,46 @@ draw_key_image <- function(data, params, size) {
         img_list <- key_images(data, n)
         ## no colour to colorize with, the image is displayed as is
         colour <- key_colour(data$colour, n, default = NA_character_)
-        grobs <- lapply(seq_len(n), function(i) {
-            key_img <- prepare_image(
-                img_list[[i]],
-                colour = colour[i],
-                opacity = opacity[i],
-                angle = 0,
-                image_fun = params$image_fun,
-                use_cache = TRUE
+        ## A legend may request several keys for the same image transform.
+        ## `rasterGrob()` converts magick images with `as.raster()` on every
+        ## call, so retain that raster only for this one key construction.
+        prepared <- prepare_image_batch(
+            img = img_list,
+            colour = colour,
+            opacity = opacity,
+            angle = rep(0, n),
+            image_fun = params$image_fun,
+            use_cache = TRUE
+        )
+        raster_images <- new.env(hash = TRUE, parent = emptyenv())
+        raster_key_for <- function(i) {
+            image_transform_key(
+                image_cache_key(prepared[[i]]),
+                0, NULL, NULL, NULL
             )
+        }
+        grobs <- lapply(seq_len(n), function(i) {
+            key_img <- prepared[[i]]
             if (is.null(key_img)) {
                 return(zeroGrob())
             }
 
+            if (methods::is(key_img, "magick-image")) {
+                raster_key <- raster_key_for(i)
+                if (exists(raster_key, envir = raster_images, inherits = FALSE)) {
+                    key_raster <- get(raster_key, envir = raster_images,
+                                      inherits = FALSE)
+                } else {
+                    key_raster <- as_raster_for_key(key_img)
+                    assign(raster_key, key_raster, envir = raster_images)
+                }
+            } else {
+                key_raster <- key_img
+            }
+
             rasterGrob(
                 0.5, 0.5,
-                image = key_img,
+                image = key_raster,
                 width = 1,
                 height = 1
             )
