@@ -5,6 +5,7 @@
 + `ggpreview()` previews the grob it already has when the file it just saved cannot be read back, warning instead of failing with "Image must have at least 1 frame to write a bitmap". `device = "pdf"` writes PDF bytes into a name ending in `.png`, and where the build has no Ghostscript delegate that read answers with an image of no frames
 + an image with no frames -- what an ImageMagick build with no delegate for its format hands back -- now warns and draws nothing, the contract an unreadable image already has. It used to be keyed on its external pointer, which every `magick` object shares, so the cache answered with some other row's image
 + `.read_image_file()` and `image_read2()` report a delegate-less read as a failed one instead of returning an empty image that aborts later, far from the cause, when it is drawn
++ a `magick` image with more than one frame draws again, in a row of a list-column and in `geom_image_repel()`. The aspect ratio of an image came from `image_info()`, which answers one row per frame, so a two-frame image gave two ratios where every caller wants one; the check added for `width` and `height` then aborted the whole layer with "the condition has length > 1" inside "Problem while converting geom to grob". A raster grob draws the first frame of such an image, so the first frame's ratio is what is returned now
 
 ## ggimage 0.3.7
 

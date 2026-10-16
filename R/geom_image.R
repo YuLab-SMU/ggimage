@@ -1246,8 +1246,13 @@ imageGrob <- function(x, y, size, img, colour, opacity, angle, adj, image_fun, h
 
 ##' @importFrom magick image_info
 getAR2 <- function(magick_image) {
+    ## `image_info()` answers one row per frame, so a multi-frame image would
+    ## give one ratio per frame.  A raster grob draws the first frame of such
+    ## an image (`as.raster()` keeps frame 1), so the ratio that has to be
+    ## returned is the first frame's; every caller treats this as a scalar, and
+    ## a vector breaks `is.finite()` with "the condition has length > 1".
     info <- image_info(magick_image)
-    info$width/info$height
+    info$width[[1L]] / info$height[[1L]]
 }
 
 
