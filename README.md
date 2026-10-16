@@ -8,12 +8,25 @@
 ![](http://cranlogs.r-pkg.org/badges/last-week/ggimage?color=green)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.344625.svg)](https://doi.org/10.5281/zenodo.344625)
 
-Supports image files and graphic objects to be visualized in ‘ggplot2’
-graphic system. Images can be drawn at data points, used as the
-background of a plot, or embedded as a sub-plot, and can be read from
-local files or downloaded from remote services such as ‘Pokemon’,
-‘PhyloPic’, and emoji and icon collections. An interactive geom is
-provided for ‘HTML’ output.
+`ggimage` brings images and graphics into `ggplot2`—from a picture at
+each observation to a full-panel background or a miniature plot embedded
+in the data.
+
+With `ggimage`, you can:
+
+- **Map images to data:** place local files, URLs, or generated image
+  sources at data coordinates, with control over size, aspect ratio,
+  rotation, colour, and transparency.
+- **Build image-based plots:** add backgrounds with `geom_bgimage()` and
+  embed plots or other graphic objects as subviews with
+  `geom_subview()`.
+- **Use ready-made image sources:** draw flags, icons, emoji, Pokemon,
+  or PhyloPic images without manually assembling image layers.
+- **Reduce overlap:** use `geom_image_repel()` to separate crowded image
+  marks.
+- **Make image plots interactive:** use `geom_image_interactive()` or
+  `geom_phylopic_interactive()` to add hover and selection interactions
+  in HTML output via `ggiraph`.
 
 ## :writing_hand: Authors
 
@@ -41,5 +54,5 @@ devtools::install_github("YuLab-SMU/ggimage")
 
 ## :book: Vignette
 
-For more details, please refer to the [online
-vignette](https://yulab-smu.top/pkgdocs/ggimage.html).
+For examples and details, see the [package
+vignette](https://cran.r-project.org/web/packages/ggimage/vignettes/ggimage.html).

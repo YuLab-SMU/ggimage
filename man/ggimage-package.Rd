@@ -6,7 +6,7 @@
 \alias{ggimage-package}
 \title{ggimage: Use Images in 'ggplot2'}
 \description{
-Supports image files and graphic objects to be visualized in 'ggplot2' graphic system. Images can be drawn at data points, used as the background of a plot, or embedded as a sub-plot, and can be read from local files or downloaded from remote services such as 'Pokemon', 'PhyloPic', and emoji and icon collections. An interactive geom is provided for 'HTML' output.
+Add image layers to 'ggplot2' plots. Images can be placed at data coordinates, used as plot backgrounds, or embedded as subplots. Supports local image files, image URLs, and image sources including 'PhyloPic', 'Pokemon', emoji, and icons. Interactive image layers are available for 'HTML' output.
 }
 \seealso{
 Useful links:
